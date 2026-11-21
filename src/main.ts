@@ -1,9 +1,3 @@
-interface UpdateAsset {
-  name: string;
-  size: number;
-  url: string;
-}
-
 interface ReleaseView {
   platform: 'android' | 'windows';
   version: string;
@@ -13,10 +7,7 @@ interface ReleaseView {
   force: boolean;
   prerelease: boolean;
   publishedAt: string;
-  size: number;
-  assetName: string;
   downloadUrl: string;
-  assets: UpdateAsset[];
 }
 
 interface PlatformInfo {
@@ -68,18 +59,6 @@ const esc = (value: unknown): string =>
     }
   });
 
-function formatBytes(bytes: number): string {
-  if (!bytes || bytes <= 0) return '—';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
-}
-
 function formatDate(value: string): string {
   if (!value) return '—';
   const date = new Date(value);
@@ -93,11 +72,11 @@ function formatDate(value: string): string {
   });
 }
 
-function absolute(url: string): string {
+function hostOf(url: string): string {
   try {
-    return new URL(url, window.location.href).href;
+    return new URL(url).host;
   } catch {
-    return url;
+    return '下载链接';
   }
 }
 
@@ -146,7 +125,7 @@ function platformCard(platform: 'windows' | 'android', info: PlatformInfo | unde
   const featured = info?.latest ?? info?.beta;
   if (!featured) {
     return `<article class="card">${heading}
-      <div class="empty">还没有发布 ${name} 安装包。按下方「如何发布新版本」创建第一个版本后，这里会自动显示。</div>
+      <div class="empty">还没有发布 ${name} 版本。在管理后台登记版本号与下载链接后，这里会自动显示。</div>
     </article>`;
   }
   const latest = featured;
@@ -163,14 +142,13 @@ function platformCard(platform: 'windows' | 'android', info: PlatformInfo | unde
     </div>
     <div class="meta-row">
       <span>${formatDate(latest.publishedAt)}</span>
-      <span>${formatBytes(latest.size)}</span>
-      <span>${esc(latest.assetName || '无安装包')}</span>
+      <span>${esc(hostOf(latest.downloadUrl))}</span>
     </div>
     ${beta}
     ${notesBlock(latest)}
     <div class="card-actions">
-      <a class="btn primary" href="${esc(absolute(latest.downloadUrl))}">下载 v${esc(latest.version)}</a>
-      <button class="btn tonal" type="button" data-copy="${esc(absolute(latest.downloadUrl))}">复制直链</button>
+      <a class="btn primary" href="${esc(latest.downloadUrl)}" target="_blank" rel="noreferrer">下载 v${esc(latest.version)}</a>
+      <button class="btn tonal" type="button" data-copy="${esc(latest.downloadUrl)}">复制直链</button>
     </div>
   </article>`;
 }
@@ -180,12 +158,7 @@ function releaseRow(release: ReleaseView): string {
     <span class="tag">${esc(release.platform)}</span>
     <span class="release-title"><strong>v${esc(release.version)}</strong>${badges(release)}</span>
     <span class="date">${formatDate(release.publishedAt)}</span>
-    <span class="size">${formatBytes(release.size)}</span>
-    <span class="dl">${
-      release.assetName
-        ? `<a class="btn tonal" href="${esc(absolute(release.downloadUrl))}">下载</a>`
-        : '<span class="size">无安装包</span>'
-    }</span>
+    <span class="dl"><a class="btn tonal" href="${esc(release.downloadUrl)}" target="_blank" rel="noreferrer">下载</a></span>
   </div>`;
 }
 
@@ -194,7 +167,7 @@ function renderReleases(releases: ReleaseView[], platform: 'all' | 'windows' | '
   const filtered = platform === 'all' ? releases : releases.filter((item) => item.platform === platform);
   if (!filtered.length) {
     list.innerHTML = `<div class="empty">${
-      releases.length ? '该平台还没有版本记录。' : '还没有任何版本。在管理后台创建第一个版本后会自动出现在这里。'
+      releases.length ? '该平台还没有版本记录。' : '还没有任何版本。在管理后台登记第一个版本后会自动出现在这里。'
     }</div>`;
     return;
   }
@@ -238,17 +211,17 @@ async function load(): Promise<void> {
       ? ((await healthResponse.json()) as HealthResponse)
       : null;
 
-    el('repo-chip').textContent = payload.storage || 'Cloudflare R2';
+    el('repo-chip').textContent = payload.storage || 'KV 版本清单';
     el('repo-chip').className = 'chip ok';
     el('latest-cards').innerHTML = platformCard('windows', payload.platforms.windows) +
       platformCard('android', payload.platforms.android);
     el('release-list').innerHTML = '';
     renderReleases(allReleases, activePlatform);
-    el('fact-storage').textContent = payload.storage || 'Cloudflare R2';
+    el('fact-storage').textContent = payload.storage || 'KV 版本清单';
     el('fact-total').textContent = String(payload.totalReleases ?? allReleases.length);
     el('fact-time').textContent = formatDate(payload.checkedAt);
     el('fact-health').textContent = health
-      ? `正常${health.storageBound ? ' · 存储已绑定' : ' · 存储未绑定'}${health.adminConfigured ? ' · 后台可用' : ' · 后台未配置'}`
+      ? `正常${health.storageBound ? ' · 版本清单已绑定' : ' · 版本清单未绑定'}${health.adminConfigured ? ' · 后台可用' : ' · 后台未配置'}`
       : '正常';
     const sample = el('api-sample');
     sample.textContent = `GET /api/v1/updates/latest?platform=android&channel=stable&current=1.8.0`;
@@ -256,7 +229,7 @@ async function load(): Promise<void> {
   } catch (error) {
     const message = error instanceof Error ? error.message : '更新服务暂时不可用';
     setBanner(
-      `${esc(message)}。若刚完成部署，请确认 Pages 项目中已绑定 R2 存储桶（变量名 <code>RELEASES</code>）并配置 <code>ADMIN_TOKEN</code>。`,
+      `${esc(message)}。若刚完成部署，请确认 Pages 项目中已绑定 KV 命名空间（变量名 <code>CATALOG</code>）并配置 <code>ADMIN_TOKEN</code>。`,
       'warn',
     );
     el('repo-chip').textContent = '连接失败';
@@ -264,7 +237,7 @@ async function load(): Promise<void> {
     el('fact-health').textContent = '不可用';
     el('latest-cards').innerHTML =
       `<article class="card"><div class="empty">无法加载版本信息，请稍后点击右上角刷新。</div></article>` +
-      `<article class="card"><div class="empty">创建第一个版本后即可在线检查更新。</div></article>`;
+      `<article class="card"><div class="empty">登记第一个版本后即可在线检查更新。</div></article>`;
     el('release-list').innerHTML = '<div class="empty">暂无数据。</div>';
   } finally {
     refresh.classList.remove('loading');

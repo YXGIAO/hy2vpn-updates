@@ -2,5 +2,6 @@ name = "hy2vpn-updates"
 compatibility_date = "2026-11-01"
 pages_build_output_dir = "./dist"
 
-# R2 绑定请在 Pages 项目 → 设置 → 绑定 中添加（变量名 RELEASES）。
-# 本地开发：npm run pages:dev 会自动挂载本地模拟桶。
+# 版本清单存放在 KV：请在 Pages 项目 → 设置 → 绑定 中添加
+# 类型「KV 命名空间」，变量名 CATALOG。
+# 本地开发：npm run pages:dev 会自动挂载本地模拟 KV。

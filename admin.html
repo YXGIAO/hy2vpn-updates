@@ -15,7 +15,7 @@
           <div class="brand-mark">H2</div>
           <div>
             <h1>更新管理后台</h1>
-            <p class="brand-sub">发布版本 · 上传安装包 · 维护更新说明</p>
+            <p class="brand-sub">手动维护版本号与安装包下载链接</p>
           </div>
         </div>
         <div class="topbar-actions">
@@ -54,7 +54,7 @@
           <div class="section-head">
             <div>
               <h2>版本管理</h2>
-              <p class="section-sub">草稿与预发布版本不会推送给稳定版客户端</p>
+              <p class="section-sub">Windows 与 Android 分开维护；草稿与 Beta 不会推送给稳定版客户端</p>
             </div>
             <div class="head-actions">
               <div class="filters" id="platform-filter">
@@ -73,35 +73,35 @@
             <div class="section-head">
               <div>
                 <h2>发布流程</h2>
-                <p class="section-sub">三步完成一次发版</p>
+                <p class="section-sub">安装包放在任何支持直链下载的地方，这里只登记版本信息</p>
               </div>
             </div>
             <ol class="steps">
               <li>
+                <strong>先上传安装包，拿到直链</strong>
+                <p>可放在对象存储、网盘或自有服务器；链接需能直接在浏览器地址栏打开并开始下载（<code>http://</code> 或 <code>https://</code>）。</p>
+              </li>
+              <li>
                 <strong>新建版本</strong>
-                <p>填写平台与版本号（如 <code>1.4.1</code> / <code>1.10.0</code>）；Beta 勾选「预发布」，还没准备好就勾选「草稿」。</p>
+                <p>选择平台，填版本号（如 <code>1.4.1</code> / <code>1.10.0</code>）、下载链接与更新说明；Android 还需填写递增的 versionCode。</p>
               </li>
               <li>
-                <strong>上传安装包</strong>
-                <p>点击版本卡片上的「上传安装包」。文件自动分片上传到 Cloudflare R2，几百 MB 的安装包也可直接传，同名文件会被替换。</p>
-              </li>
-              <li>
-                <strong>发布给用户</strong>
-                <p>草稿 → 点击「发布」；预发布版本 → 点击「设为稳定」；需要强制升级时在「编辑说明」里勾选强制更新。</p>
+                <strong>发布并验证</strong>
+                <p>草稿 → 点「发布」；Beta 版本 → 点「设为稳定」。发布后打开 <code>/api/v1/updates/latest?platform=windows&amp;current=0.0.0</code> 确认返回的 <code>downloadUrl</code> 正确。</p>
               </li>
             </ol>
-            <p class="hint" id="size-hint">上传按 32 MiB 分片直传 R2，单个安装包没有 25 MiB / 95 MiB 限制，建议控制在 2 GB 以内；上传失败会自动中止，重传即可。</p>
+            <p class="hint" id="link-hint">建议先在无痕窗口打开一次下载链接，确认普通用户能直接下载；链接里的文件名最好带版本号，方便识别。</p>
           </article>
 
           <article class="card">
             <div class="section-head">
               <div>
                 <h2>服务状态</h2>
-                <p class="section-sub">安装包存放在 Cloudflare R2（免流量费）</p>
+                <p class="section-sub">版本信息存放在 Cloudflare KV</p>
               </div>
             </div>
             <dl class="facts">
-              <div><dt>存储</dt><dd id="fact-storage">—</dd></div>
+              <div><dt>版本清单</dt><dd id="fact-storage">—</dd></div>
               <div><dt>管理口令</dt><dd id="fact-admin">—</dd></div>
               <div><dt>版本总数</dt><dd id="fact-count">—</dd></div>
               <div><dt>刷新时间</dt><dd id="fact-time">—</dd></div>
@@ -112,7 +112,7 @@
 
       <footer class="footer">
         <span>HY2 VPN · 更新管理后台</span>
-        <span id="origin-label">Cloudflare Pages + R2</span>
+        <span id="origin-label">Cloudflare Pages + KV</span>
       </footer>
     </div>
 
@@ -135,7 +135,11 @@
             <span>versionCode（Android）</span>
             <input id="f-versioncode" class="input" type="number" min="1" step="1" placeholder="14" />
           </label>
-          <label class="field">
+          <label class="field field-wide">
+            <span>安装包下载链接</span>
+            <input id="f-url" class="input" type="url" placeholder="https://example.com/HY2VPN-1.4.1.apk" required />
+          </label>
+          <label class="field field-wide">
             <span>标题（可选）</span>
             <input id="f-title" class="input" placeholder="Windows 1.4.1" />
           </label>

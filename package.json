@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.worker.json",
-    "pages:dev": "npm run build && wrangler pages dev dist --r2=RELEASES=hy2vpn-releases",
+    "pages:dev": "npm run build && wrangler pages dev dist --kv=CATALOG",
     "deploy": "npm run build && wrangler pages deploy dist --project-name hy2vpn-updates"
   },
   "devDependencies": {

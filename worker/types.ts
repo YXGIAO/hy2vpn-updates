@@ -1,17 +1,10 @@
 export interface Env {
   ADMIN_TOKEN?: string;
-  RELEASES?: R2Bucket;
+  CATALOG?: KVNamespace;
   ASSETS: Fetcher;
 }
 
 export type Platform = 'android' | 'windows';
-
-export interface CatalogAsset {
-  key: string;
-  name: string;
-  size: number;
-  contentType: string;
-}
 
 export interface CatalogRelease {
   id: string;
@@ -23,9 +16,10 @@ export interface CatalogRelease {
   versionCode: number | null;
   prerelease: boolean;
   draft: boolean;
+  // 后台手动填写的安装包直链（对象存储 / 网盘 / 自有服务器均可）
+  downloadUrl: string;
   publishedAt: string;
   createdAt: string;
-  asset: CatalogAsset | null;
 }
 
 export interface Catalog {

@@ -412,7 +412,7 @@ h2 {
 
 .release-row {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr) 130px 130px 110px;
+  grid-template-columns: 96px minmax(0, 1fr) 130px 110px;
   gap: 14px;
   align-items: center;
   padding: 12px 2px;
@@ -445,8 +445,7 @@ h2 {
   font-weight: 620;
 }
 
-.release-row .date,
-.release-row .size {
+.release-row .date {
   color: var(--muted);
   font-size: 12.5px;
 }
@@ -462,8 +461,7 @@ h2 {
   }
 
   .release-row .tag,
-  .release-row .date,
-  .release-row .size {
+  .release-row .date {
     grid-column: 1;
   }
 
@@ -700,37 +698,11 @@ textarea.input {
   text-decoration: none;
 }
 
-.asset-list {
-  margin-top: 12px;
-  border-top: 1px dashed var(--border);
-}
-
-.asset-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px dashed var(--border);
-  font-size: 13px;
-}
-
-.asset-row.muted {
-  color: var(--muted);
-}
-
-.asset-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: "Cascadia Code", Consolas, monospace;
+.admin-release-head .tag {
+  color: var(--primary);
+  text-decoration: none;
   font-size: 12.5px;
-}
-
-.asset-size {
-  color: var(--muted);
-  font-size: 12px;
-  margin-left: auto;
+  white-space: nowrap;
 }
 
 .link-btn {
@@ -751,32 +723,6 @@ textarea.input {
 
 .admin-release .notes {
   max-height: 160px;
-}
-
-.upload-progress {
-  margin-top: 12px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.upload-progress[hidden] {
-  display: none;
-}
-
-.upload-bar {
-  height: 6px;
-  width: 0;
-  border-radius: 999px;
-  background: var(--primary);
-  transition: width 0.2s ease;
-  flex: 1;
-}
-
-.upload-text {
-  color: var(--muted);
-  font-size: 12px;
-  white-space: nowrap;
 }
 
 .dialog {

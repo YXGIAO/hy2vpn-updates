@@ -1,49 +1,66 @@
 # HY2 VPN 更新推送服务
 
-为 HY2 VPN 的 Windows 与 Android 客户端提供「检查更新 + 下载安装包」服务，并附带一个网页管理后台。
+为 HY2 VPN 的 Windows 与 Android 客户端提供「检查更新」接口，并附带一个网页管理后台。
 
 - 线上地址：<https://up.tsapi.fun>（自定义域名，指向 Cloudflare Pages 项目 `hy2vpn-updates`）
 - 前端：Cloudflare Pages 托管的静态页面（首页 + `admin.html` 管理后台）+ Pages Functions（`functions/[[path]].ts`）
-- 存储：安装包与版本清单都存放在 **Cloudflare R2** 存储桶里，不再依赖 GitHub Releases
-- 上传：管理后台把安装包切成 32 MiB 分片，通过 R2 分片上传直接写入存储桶，几百 MB 的 exe 也能上传
-- 缓存：版本清单（`catalog.json`）在边缘缓存 120 秒，后台写入后立即清除
+- 版本清单：存放在 **Cloudflare KV**（一个 `catalog.json` 的 JSON 值），后台可随时增删改
+- 安装包：**不经过本站**。在后台手动填写版本号与下载直链，客户端拿到链接后自行跳转下载
+- Windows 与 Android 完全分开维护：各自有独立的版本号、versionCode、说明、Beta / 草稿 / 强制更新状态
 
 ```
-客户端 ──GET /api/v1/updates/latest──▶ Pages Function ──读 catalog.json──▶ R2 存储桶
-   │                                        │
-   └────── 下载安装包 ◀────────────────────┴──流式读取 releases/... ▶ R2 存储桶
-管理后台 ──分片上传 / 编辑版本──▶ Pages Function ──写──▶ R2 存储桶（catalog.json + releases/）
+客户端 ──GET /api/v1/updates/latest──▶ Pages Function ──读──▶ Cloudflare KV（catalog.json）
+   │
+   └── 拿到 release.downloadUrl ──▶ 自行托管的安装包（对象存储 / 网盘 / 自有服务器）
+
+管理后台 ──填版本号 + 下载链接──▶ Pages Function ──写──▶ Cloudflare KV
 ```
 
 ## 目录结构
 
 ```
 updates/
-├─ index.html              公开页面（版本展示 + 下载）
-├─ admin.html              管理后台（发布 / 分片上传 / 草稿 / Beta）
+├─ index.html              公开页面（最新版 / 版本记录 / 直链跳转）
+├─ admin.html              管理后台（Windows、Android 分开维护版本与链接）
 ├─ src/main.ts             公开页面逻辑
-├─ src/admin.ts            管理后台逻辑（含分片上传）
+├─ src/admin.ts            管理后台逻辑
 ├─ src/styles.css          公共样式
-├─ worker/                 R2 读写、版本比较、API 路由（被 Functions 复用）
-│  ├─ catalog.ts           catalog.json 读写、排序比较、文件名清洗
-│  ├─ admin.ts             /api/v1/admin/* 管理接口与分片上传
-│  ├─ api.ts               公开接口路由、安装包流式下载
+├─ worker/
+│  ├─ catalog.ts           KV 读写、版本比较、链接校验
+│  ├─ admin.ts             /api/v1/admin/* 管理接口
+│  ├─ api.ts               公开接口路由
+│  ├─ types.ts             数据结构
 │  └─ view.ts              JSON 视图
 ├─ functions/[[path]].ts   Pages Functions 入口：/api/* 走 API，其余走静态资源
 ├─ wrangler.toml           Pages 配置
 └─ package.json
 ```
 
-## 存储结构（R2）
+## 数据结构（KV）
 
-存储桶中只有两类对象：
+KV 中只有一个键 `catalog.json`，值是所有版本的数组：
 
-| 键 | 说明 |
-| --- | --- |
-| `catalog.json` | 版本清单：每个版本的平台、版本号、说明、状态与安装包元信息 |
-| `releases/{platform}/{version}/{文件名}` | 安装包本体，例如 `releases/windows/1.4.0/HY2VPN-Desktop-Setup-1.4.0.exe` |
-
-`catalog.json` 是唯一数据源，不需要数据库。管理后台的每次修改都会整体重写它并刷新缓存。
+```json
+{
+  "updatedAt": "2026-11-21T12:00:00.000Z",
+  "releases": [
+    {
+      "id": "c2b7…",
+      "platform": "windows",
+      "version": "1.4.0",
+      "versionCode": null,
+      "title": "Windows 1.4.0",
+      "notes": "修复若干问题",
+      "force": false,
+      "prerelease": false,
+      "draft": false,
+      "downloadUrl": "https://cdn.example.com/HY2VPN-Desktop-Setup-1.4.0.exe",
+      "publishedAt": "2026-11-21T12:00:00.000Z",
+      "createdAt": "2026-11-21T12:00:00.000Z"
+    }
+  ]
+}
+```
 
 ## 本地开发
 
@@ -52,8 +69,8 @@ npm install
 npm run typecheck
 npm run build
 
-# 带 Functions 和本地模拟 R2 桶的调试（先 build，密钥放 .dev.vars）
-npm run pages:dev        # 等价于 wrangler pages dev dist --r2=RELEASES=hy2vpn-releases
+# 带 Functions 和本地模拟 KV 的调试（先 build，口令放 .dev.vars）
+npm run pages:dev        # 等价于 wrangler pages dev dist --kv=CATALOG
 ```
 
 `.dev.vars` 示例（不要提交到仓库）：
@@ -62,7 +79,7 @@ npm run pages:dev        # 等价于 wrangler pages dev dist --r2=RELEASES=hy2vp
 ADMIN_TOKEN=你的管理口令
 ```
 
-本地模拟数据保存在 `.wrangler/state`，删除该目录即可清空所有版本。
+本地模拟数据保存在 `.wrangler/state`，删除该目录即可清空。
 
 `npm run dev` 只启动 Vite 静态页面，不含 `/api/*`，页面会显示「连接失败」，属正常现象。
 
@@ -82,21 +99,18 @@ ADMIN_TOKEN=你的管理口令
    - Environment variables：`NODE_VERSION` = `22`（可选，默认已是 22）
 4. 点击 **Save and Deploy**。
 
-### 2. 创建 R2 存储桶
+### 2. 创建 KV 命名空间
 
-1. Cloudflare 控制台左侧进入 **R2**。
-2. 点击 **Create bucket**，名称填 `hy2vpn-releases`（可自定义，绑定后以绑定名为准）。
-3. 位置选择 **Automatic** 即可，其余保持默认，点击创建。
-4. 不需要开启公开访问（Public access），安装包统一通过本站的 `/api/v1/updates/download/...` 接口下载。
+1. Cloudflare 控制台左侧进入 **Workers & Pages** → **KV**。
+2. 点击 **Create a namespace**，名称填 `hy2vpn-catalog`。
+3. 创建后不需要手动写入任何内容，后台第一次保存版本时会自动生成 `catalog.json`。
 
-> R2 免费额度：存储 10 GB/月、A 类操作 100 万次/月、B 类操作 1000 万次/月，个人更新分发完全够用。
+### 3. 绑定 KV 到 Pages
 
-### 3. 绑定 R2 到 Pages
-
-1. 进入 Pages 项目 → **Settings** → **Bindings**（旧版界面为 Functions → R2 bucket bindings）。
-2. 点击 **Add** → **R2 bucket**。
-3. 变量名填 **`RELEASES`**（必须大写，代码里按这个名字读取）。
-4. 选择第 2 步创建的桶 `hy2vpn-releases`，点击保存。
+1. 进入 Pages 项目 → **Settings** → **Bindings**（旧界面为 Functions → KV namespace bindings）。
+2. 点击 **Add** → **KV namespace**。
+3. 变量名填 **`CATALOG`**（必须大写，代码里按这个名字读取）。
+4. 选择第 2 步创建的 namespace `hy2vpn-catalog`，点击保存。
 
 ### 4. 绑定域名 up.tsapi.fun
 
@@ -107,8 +121,6 @@ ADMIN_TOKEN=你的管理口令
 3. Cloudflare 会自动添加 CNAME（`up` → `hy2vpn-updates.pages.dev`），点击 **Activate domain**。
 4. 等待状态变为 **Active**（通常 1–2 分钟），打开 `https://up.tsapi.fun/api/v1/updates/health`，返回 `"ok": true` 且 `"storageBound": true` 即成功。
 
-> `hy2vpn-updates.pages.dev` 仍然可用，自定义域名失效时可作为备用。
-
 ### 5. 配置管理口令
 
 在 Pages 项目 → **Settings** → **Variables and Secrets** 添加：
@@ -117,20 +129,20 @@ ADMIN_TOKEN=你的管理口令
 | --- | --- | --- | --- |
 | `ADMIN_TOKEN` | Secret | 自定义强口令（如 32 位随机串） | 管理后台登录口令 |
 
-不再需要任何 GitHub Token。修改绑定或变量后，需要在 **Deployments** 里 **Retry deployment** 才会生效。
+不再需要 GitHub Token 或 R2 存储桶。修改绑定或变量后，需要在 **Deployments** 里 **Retry deployment** 才会生效。
 
-### 6. 进入管理后台
+### 6. 使用管理后台
 
 1. 打开 <https://up.tsapi.fun/admin.html>（首页右上角「管理后台」也可进入）。
 2. 输入 `ADMIN_TOKEN` 登录，口令只保存在当前浏览器标签页（sessionStorage）。
-3. 首次发版：点击「新建版本」→ 填写平台与版本号 → 保存 → 在版本卡片上「上传安装包」→ 点击「发布」。
+3. 点击「新建版本」，Windows / Android 各填各的：
+   - **版本号**：如 `1.4.1`、`1.10.0`（同平台不可重复）
+   - **安装包下载链接**：必须是 `http://` 或 `https://` 开头、能在浏览器直接开始下载的地址
+   - **versionCode**：Android 必填，递增整数
+   - **更新说明 / 强制更新 / 预发布（Beta）/ 草稿**
+4. 保存后可在卡片上编辑链接、发布、转草稿、设为 Beta 或删除。
 
-后台支持的操作：
-
-- 新建 / 编辑 / 删除版本（说明、强制更新、Android versionCode）
-- 上传安装包：自动按 32 MiB 分片直传 R2，带进度条与失败重试，重新上传会替换旧文件
-- 单独删除安装包（保留版本记录）
-- 草稿（不对外）↔ 发布；预发布（Beta）↔ 稳定版
+安装包放在哪里都可以：对象存储（R2 / S3 / 阿里云 OSS 等）、网盘直链、自有服务器。本站只保存链接，不代理流量。
 
 ## API
 
@@ -154,17 +166,17 @@ GET /api/v1/updates/latest?platform=android&channel=stable&current=1.8.0
   "current": "1.8.0",
   "updateAvailable": true,
   "release": {
+    "platform": "android",
     "version": "1.9.0",
     "versionCode": 13,
+    "title": "Android 1.9.0",
     "notes": "新增客户端更新检查",
     "force": false,
     "prerelease": false,
     "publishedAt": "2026-11-21T08:00:00Z",
-    "size": 23592960,
-    "assetName": "HY2VPN-1.9.0.apk",
-    "downloadUrl": "https://up.tsapi.fun/api/v1/updates/download/android/1.9.0",
-    "assets": [{ "name": "HY2VPN-1.9.0.apk", "size": 23592960, "url": "..." }]
-  }
+    "downloadUrl": "https://cdn.example.com/HY2VPN-1.9.0.apk"
+  },
+  "checkedAt": "2026-11-21T08:01:00Z"
 }
 ```
 
@@ -172,12 +184,11 @@ GET /api/v1/updates/latest?platform=android&channel=stable&current=1.8.0
 
 | 接口 | 说明 |
 | --- | --- |
-| `GET /api/v1/updates/releases?platform=all&channel=all` | 全部版本列表（不含草稿） |
-| `GET /api/v1/updates/download/{platform}/{version}` | 流式返回安装包（由 Function 从 R2 中转）；`version` 可填 `latest` |
+| `GET /api/v1/updates/releases?platform=all&channel=all` | 全部版本列表（不含草稿与没有链接的版本） |
 | `GET /api/v1/updates/info` | 页面概览数据 |
-| `GET /api/v1/updates/health` | 健康检查，返回 `storage`、`storageBound`、`adminConfigured` |
+| `GET /api/v1/updates/health` | 健康检查，返回 `storageBound`、`adminConfigured` |
 
-所有公开接口都带 `Access-Control-Allow-Origin: *`。
+所有公开接口都带 `Access-Control-Allow-Origin: *`，客户端跨域调用，下载链接由客户端自行打开。
 
 ### 管理接口
 
@@ -186,36 +197,32 @@ GET /api/v1/updates/latest?platform=android&channel=stable&current=1.8.0
 | 接口 | 说明 |
 | --- | --- |
 | `POST /api/v1/admin/session` | 校验口令 |
-| `GET /api/v1/admin/state` | 全部版本（含草稿）+ 存储绑定状态 |
-| `POST /api/v1/admin/releases` | 新建版本 |
-| `PATCH /api/v1/admin/releases/{id}` | 修改说明 / force / 预发布 / 草稿 |
-| `DELETE /api/v1/admin/releases/{id}` | 删除版本及其安装包 |
-| `POST /api/v1/admin/releases/{id}/uploads` | 开始分片上传，返回 `uploadId` |
-| `PUT /api/v1/admin/releases/{id}/uploads/{uploadId}/parts/{n}?name=xxx` | 上传第 n 片（请求体为二进制） |
-| `POST /api/v1/admin/releases/{id}/uploads/{uploadId}/complete?name=xxx` | 合并分片并写入版本清单 |
-| `DELETE /api/v1/admin/releases/{id}/uploads/{uploadId}?name=xxx` | 中止上传 |
-| `DELETE /api/v1/admin/releases/{id}/asset` | 删除安装包（保留版本） |
+| `GET /api/v1/admin/state` | 全部版本（含草稿）+ 各平台最新版 |
+| `POST /api/v1/admin/releases` | 新建版本（platform / version / versionCode / downloadUrl / notes / force / prerelease / draft） |
+| `PATCH /api/v1/admin/releases/{id}` | 修改说明、下载链接、force、预发布、草稿、versionCode |
+| `DELETE /api/v1/admin/releases/{id}` | 删除版本（不影响链接指向的文件） |
 
 ## 版本约定
 
-- 平台只有 `windows` 与 `android` 两种；同一平台版本号不可重复。
+- 平台只有 `windows` 与 `android` 两种，同一平台版本号不可重复。
 - 草稿：不会出现在任何公开接口中，后台可随时发布。
 - 预发布：只对 `channel=beta` 的请求可见。
 - Android 必须填写 `versionCode`（递增整数），用于客户端比较。
-- 安装包名建议 `HY2VPN-<version>.apk` / `HY2VPN-Desktop-Setup-<version>.exe`；文件名中的空格与非法字符会被自动替换。
+- 只有填写了合法下载链接的版本才会对外可见；编辑链接会立即替换客户端收到的地址。
 - 「最新版」按版本号排序自动取最高；回滚时把新版本改为草稿或 Beta 即可。
 
 ## 客户端接入
 
 - Windows 1.4.0：`electron/updates.cjs` 默认请求 `https://up.tsapi.fun`，可用环境变量 `HY2VPN_UPDATES_URL` 覆盖。
 - Android 1.9.0：`UPDATE_BASE_URL`（`app/build.gradle.kts`）指向同一地址。
-- 检查时机：启动时自动检查一次；「我 → 关于 → 检查更新」可手动检查；发现新版本后弹窗展示更新说明并打开下载页。
+- 检查时机：启动时自动检查一次；「我 → 关于 → 检查更新」可手动检查；发现新版本后弹窗展示更新说明并打开 `downloadUrl`。
 
 ## 常见问题
 
-- **构建报 `npm ci` 与 lockfile 不同步**：仓库内已包含与 `package.json` 匹配的 `package-lock.json`；如自行改过依赖，请在本地执行 `npm install` 后把新的 lockfile 一起提交。
-- **页面提示「存储未绑定」或接口返回 503**：Pages → Settings → Bindings 添加 R2 存储桶绑定，变量名必须是 `RELEASES`，然后 Retry deployment。
+- **页面提示「未绑定」或接口返回 503**：Pages → Settings → Bindings 添加 KV 命名空间绑定，变量名必须是 `CATALOG`，然后 Retry deployment。
 - **管理后台提示「未配置 ADMIN_TOKEN」**：添加 Secret 后务必 Retry deployment。
-- **上传到一半失败**：后台会自动中止本次上传；重新点击「上传安装包」即可整体重传，不会产生脏文件。
-- **客户端看到旧版本**：边缘缓存 120 秒，发布后最多等待两分钟再刷新。
-- **安装包下载慢**：下载由 Pages Function 从 R2 流式中转，走 Cloudflare 全球网络，不受源站带宽限制。
+- **保存后客户端没变化**：接口本身缓存 30 秒；KV 全球同步通常几秒到 1 分钟，稍等再试。
+- **下载链接点了没反应 / 403**：先在无痕窗口直接打开链接验证；网盘链接需要能免登录直接下载，不能是分享页面。
+- **客户端看到旧版本**：检查是否误标为草稿 / Beta，或版本号没有递增。
+- **想删掉安装包**：本站不存文件，删除版本记录即可；文件请到实际托管处删除。
+- **构建报 `npm ci` 与 lockfile 不同步**：本地执行 `npm install` 后提交新的 `package-lock.json`。
