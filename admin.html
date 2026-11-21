@@ -79,30 +79,30 @@
             <ol class="steps">
               <li>
                 <strong>新建版本</strong>
-                <p>标签自动生成 <code>windows-v1.4.1</code> / <code>android-v1.10.0</code>；Beta 勾选「预发布」，还没准备好就勾选「草稿」。</p>
+                <p>填写平台与版本号（如 <code>1.4.1</code> / <code>1.10.0</code>）；Beta 勾选「预发布」，还没准备好就勾选「草稿」。</p>
               </li>
               <li>
                 <strong>上传安装包</strong>
-                <p>点击版本卡片上的「上传安装包」。同名文件会被替换。草稿版本同样可以上传。</p>
+                <p>点击版本卡片上的「上传安装包」。文件自动分片上传到 Cloudflare R2，几百 MB 的安装包也可直接传，同名文件会被替换。</p>
               </li>
               <li>
                 <strong>发布给用户</strong>
                 <p>草稿 → 点击「发布」；预发布版本 → 点击「设为稳定」；需要强制升级时在「编辑说明」里勾选强制更新。</p>
               </li>
             </ol>
-            <p class="hint" id="size-hint"></p>
+            <p class="hint" id="size-hint">上传按 32 MiB 分片直传 R2，单个安装包没有 25 MiB / 95 MiB 限制，建议控制在 2 GB 以内；上传失败会自动中止，重传即可。</p>
           </article>
 
           <article class="card">
             <div class="section-head">
               <div>
                 <h2>服务状态</h2>
-                <p class="section-sub">写入操作需要 GITHUB_TOKEN</p>
+                <p class="section-sub">安装包存放在 Cloudflare R2（免流量费）</p>
               </div>
             </div>
             <dl class="facts">
-              <div><dt>GitHub 仓库</dt><dd id="fact-repo">—</dd></div>
-              <div><dt>写入 Token</dt><dd id="fact-write">—</dd></div>
+              <div><dt>存储</dt><dd id="fact-storage">—</dd></div>
+              <div><dt>管理口令</dt><dd id="fact-admin">—</dd></div>
               <div><dt>版本总数</dt><dd id="fact-count">—</dd></div>
               <div><dt>刷新时间</dt><dd id="fact-time">—</dd></div>
             </dl>
@@ -112,7 +112,7 @@
 
       <footer class="footer">
         <span>HY2 VPN · 更新管理后台</span>
-        <span id="origin-label">Cloudflare Pages + GitHub Releases</span>
+        <span id="origin-label">Cloudflare Pages + R2</span>
       </footer>
     </div>
 

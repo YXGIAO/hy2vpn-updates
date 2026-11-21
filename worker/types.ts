@@ -1,32 +1,34 @@
 export interface Env {
-  GITHUB_REPO?: string;
-  GITHUB_TOKEN?: string;
   ADMIN_TOKEN?: string;
+  RELEASES?: R2Bucket;
   ASSETS: Fetcher;
 }
 
 export type Platform = 'android' | 'windows';
 
-export interface UpdateAsset {
-  id: number;
+export interface CatalogAsset {
+  key: string;
   name: string;
   size: number;
-  url: string;
+  contentType: string;
 }
 
-export interface UpdateRelease {
-  id: number;
+export interface CatalogRelease {
+  id: string;
   platform: Platform;
   version: string;
-  tag: string;
   title: string;
   notes: string;
-  publishedAt: string;
-  prerelease: boolean;
-  draft: boolean;
   force: boolean;
   versionCode: number | null;
-  pageUrl: string;
-  assets: UpdateAsset[];
-  primary: UpdateAsset | null;
+  prerelease: boolean;
+  draft: boolean;
+  publishedAt: string;
+  createdAt: string;
+  asset: CatalogAsset | null;
+}
+
+export interface Catalog {
+  updatedAt: string;
+  releases: CatalogRelease[];
 }

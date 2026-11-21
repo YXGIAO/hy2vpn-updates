@@ -14,7 +14,7 @@
           <div class="brand-mark">H2</div>
           <div>
             <h1>HY2 VPN 更新服务</h1>
-            <p class="brand-sub">客户端更新检查 · 安装包分发 · GitHub Releases 托管</p>
+            <p class="brand-sub">客户端更新检查 · 安装包分发 · Cloudflare R2 存储</p>
           </div>
         </div>
         <div class="topbar-actions">
@@ -69,11 +69,11 @@
           <div class="section-head">
             <div>
               <h2>状态</h2>
-              <p class="section-sub">GitHub API 结果缓存 120 秒</p>
+              <p class="section-sub">版本信息缓存 120 秒</p>
             </div>
           </div>
           <dl class="facts">
-            <div><dt>GitHub 仓库</dt><dd id="fact-repo">—</dd></div>
+            <div><dt>安装包存储</dt><dd id="fact-storage">—</dd></div>
             <div><dt>安装包总数</dt><dd id="fact-total">—</dd></div>
             <div><dt>服务时间</dt><dd id="fact-time">—</dd></div>
             <div><dt>健康检查</dt><dd id="fact-health">—</dd></div>
@@ -85,7 +85,7 @@
         <div class="section-head">
           <div>
             <h2>如何发布新版本</h2>
-            <p class="section-sub">推荐使用「管理后台」，也可直接在 GitHub 新建 Release</p>
+            <p class="section-sub">推荐使用「管理后台」，安装包存放在 Cloudflare R2</p>
           </div>
         </div>
         <ol class="steps">
@@ -95,7 +95,7 @@
           </li>
           <li>
             <strong>构建并上传安装包</strong>
-            <p>Windows 生成 <code>HY2VPN-Desktop-Setup-x.y.z.exe</code>；Android 生成 <code>HY2VPN-x.y.z.apk</code>（签名版）。超过上传上限的大文件可在 GitHub 网页版上传后再回后台调整状态。</p>
+            <p>Windows 生成 <code>HY2VPN-Desktop-Setup-x.y.z.exe</code>；Android 生成 <code>HY2VPN-x.y.z.apk</code>（签名版）。上传自动分片，几百 MB 的安装包也可直接在后台完成。</p>
           </li>
           <li>
             <strong>检查与发布</strong>
@@ -106,12 +106,12 @@
             <p>刷新本页，或访问 <code>/api/v1/updates/latest?platform=windows&amp;current=0.0.0</code> 确认能看到新版本。</p>
           </li>
         </ol>
-        <p class="hint">发布顺序建议：先上传安装包并发布 Release，再推送带新版本号的客户端代码。</p>
+        <p class="hint">发布顺序建议：先上传安装包并发布版本，再推送带新版本号的客户端代码。</p>
       </section>
 
       <footer class="footer">
         <span>HY2 VPN · hy2vpn-updates</span>
-        <span>Cloudflare Pages + GitHub Releases</span>
+        <span>Cloudflare Pages + R2</span>
       </footer>
     </div>
     <script type="module" src="/src/main.ts"></script>

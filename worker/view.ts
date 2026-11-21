@@ -1,43 +1,38 @@
-import type { UpdateRelease } from './types';
+import type { CatalogRelease } from './types';
 
-export function releaseView(release: UpdateRelease, origin: string): Record<string, unknown> {
-  const primary = release.primary;
-  const downloadUrl = primary
-    ? `${origin}/api/v1/updates/download/${release.platform}/${encodeURIComponent(release.version)}`
-    : release.pageUrl;
+export function downloadPath(release: CatalogRelease): string {
+  return `/api/v1/updates/download/${release.platform}/${encodeURIComponent(release.version)}`;
+}
+
+export function releaseView(release: CatalogRelease, origin: string): Record<string, unknown> {
+  const asset = release.asset;
+  const downloadUrl = `${origin}${downloadPath(release)}`;
   return {
     platform: release.platform,
     version: release.version,
     versionCode: release.versionCode,
-    tag: release.tag,
     title: release.title,
     notes: release.notes,
     force: release.force,
     prerelease: release.prerelease,
     publishedAt: release.publishedAt,
-    size: primary ? primary.size : 0,
-    assetName: primary ? primary.name : '',
+    size: asset ? asset.size : 0,
+    assetName: asset ? asset.name : '',
     downloadUrl,
-    pageUrl: release.pageUrl,
-    assets: release.assets.map((asset) => ({
-      name: asset.name,
-      size: asset.size,
-      url: asset.url,
-    })),
+    pageUrl: downloadUrl,
+    assets: asset
+      ? [{ name: asset.name, size: asset.size, url: downloadUrl }]
+      : [],
   };
 }
 
-export function adminReleaseView(release: UpdateRelease, origin: string): Record<string, unknown> {
+export function adminReleaseView(release: CatalogRelease, origin: string): Record<string, unknown> {
   return {
     ...releaseView(release, origin),
     id: release.id,
     draft: release.draft,
-    assets: release.assets.map((asset) => ({
-      id: asset.id,
-      name: asset.name,
-      size: asset.size,
-      url: asset.url,
-      primary: release.primary ? asset.id === release.primary.id : false,
-    })),
+    asset: release.asset
+      ? { name: release.asset.name, size: release.asset.size, contentType: release.asset.contentType }
+      : null,
   };
 }

@@ -1,19 +1,16 @@
 type Platform = 'android' | 'windows';
 
 interface AdminAsset {
-  id: number;
   name: string;
   size: number;
-  url: string;
-  primary: boolean;
+  contentType: string;
 }
 
 interface AdminRelease {
-  id: number;
+  id: string;
   platform: Platform;
   version: string;
   versionCode: number | null;
-  tag: string;
   title: string;
   notes: string;
   force: boolean;
@@ -23,8 +20,7 @@ interface AdminRelease {
   size: number;
   assetName: string;
   downloadUrl: string;
-  pageUrl: string;
-  assets: AdminAsset[];
+  asset: AdminAsset | null;
 }
 
 interface PlatformInfo {
@@ -34,21 +30,28 @@ interface PlatformInfo {
 
 interface AdminState {
   ok: boolean;
-  repo: string;
-  writeConfigured: boolean;
-  maxUploadMB: number;
+  storageBound: boolean;
   releases: AdminRelease[];
   platforms: Record<Platform, PlatformInfo>;
   checkedAt: string;
 }
 
+interface UploadSession {
+  uploadId: string;
+  name: string;
+  key: string;
+}
+
 const TOKEN_KEY = 'hy2up-admin-token';
+const PART_SIZE = 32 * 1024 * 1024;
+
 let token = '';
 let state: AdminState | null = null;
 let activePlatform: 'all' | Platform = 'all';
-let editingId: number | null = null;
-let uploadReleaseId: number | null = null;
+let editingId: string | null = null;
+let uploadReleaseId: string | null = null;
 let busy = false;
+let uploading = false;
 
 const el = <T extends HTMLElement>(id: string): T => {
   const node = document.getElementById(id);
@@ -176,19 +179,16 @@ async function refresh(): Promise<void> {
   el('login-view').hidden = true;
   el('dashboard').hidden = false;
   el('logout').hidden = false;
-  el('repo-chip').textContent = next.repo;
-  el('repo-chip').className = 'chip ok';
-  el('fact-repo').textContent = next.repo;
-  el('fact-write').textContent = next.writeConfigured ? '已配置' : '未配置（只能查看）';
+  el('repo-chip').textContent = next.storageBound ? 'R2 已连接' : 'R2 未绑定';
+  el('repo-chip').className = `chip ${next.storageBound ? 'ok' : 'warn'}`;
+  el('fact-storage').textContent = next.storageBound ? 'Cloudflare R2' : '未绑定';
+  el('fact-admin').textContent = '已配置';
   el('fact-count').textContent = String(next.releases.length);
   el('fact-time').textContent = formatDate(next.checkedAt);
-  el('size-hint').textContent =
-    `单次上传上限约 ${next.maxUploadMB} MB（Cloudflare 请求体限制）。` +
-    'Windows 安装包通常超过该限制，请先在 GitHub 发布页上传文件，再回到本页调整版本状态。';
   el('platform-cards').innerHTML =
     summaryCard('windows', next.platforms.windows) + summaryCard('android', next.platforms.android);
-  if (!next.writeConfigured) {
-    setBanner('当前只配置了读取 Token。要使用发布/编辑功能，请在 Pages 中配置具备 Contents 读写权限的 GITHUB_TOKEN。', 'warn');
+  if (!next.storageBound) {
+    setBanner('尚未绑定 R2 存储桶：请在 Pages 项目 → 设置 → 绑定 中添加 RELEASES（类型 R2 存储桶），然后重新部署。', 'error');
   } else {
     setBanner('');
   }
@@ -208,7 +208,7 @@ function summaryCard(platform: Platform, info: PlatformInfo): string {
   const name = platform === 'windows' ? 'Windows' : 'Android';
   const glyph = platform === 'windows' ? '🪟' : '🤖';
   const stable = info.latest;
-  const beta = info.beta && stable && info.beta.id !== stable.id ? info.beta : null;
+  const beta = info.beta && stable && info.beta.version !== stable.version ? info.beta : null;
   return `<article class="card">
     <div class="platform-head">
       <div class="platform-name"><span class="platform-glyph">${glyph}</span>${name} 客户端</div>
@@ -233,19 +233,15 @@ function summaryCard(platform: Platform, info: PlatformInfo): string {
 }
 
 function assetRows(release: AdminRelease): string {
-  if (!release.assets.length) {
+  if (!release.asset) {
     return '<div class="asset-row muted"><span>尚未上传安装包</span></div>';
   }
-  return release.assets
-    .map(
-      (asset) => `<div class="asset-row">
-        <span class="asset-name">${esc(asset.name)}</span>
-        <span class="asset-size">${formatBytes(asset.size)}</span>
-        ${asset.primary ? '<span class="badge stable">主安装包</span>' : ''}
-        <button class="link-btn danger" type="button" data-action="del-asset" data-asset="${asset.id}" data-name="${esc(asset.name)}">删除</button>
-      </div>`,
-    )
-    .join('');
+  return `<div class="asset-row">
+      <span class="asset-name">${esc(release.asset.name)}</span>
+      <span class="asset-size">${formatBytes(release.asset.size)}</span>
+      <span class="badge stable">R2 存储</span>
+      <button class="link-btn danger" type="button" data-action="del-asset">删除</button>
+    </div>`;
 }
 
 function releaseCard(release: AdminRelease): string {
@@ -263,15 +259,14 @@ function releaseCard(release: AdminRelease): string {
     actions.push(`<button class="btn ghost" type="button" data-action="prerelease" data-value="1">设为 Beta</button>`);
   }
   actions.push(`<button class="btn ghost danger" type="button" data-action="delete">删除版本</button>`);
-  return `<article class="admin-release${release.draft ? ' is-draft' : ''}" data-id="${release.id}">
+  return `<article class="admin-release${release.draft ? ' is-draft' : ''}" data-id="${esc(release.id)}">
     <div class="admin-release-head">
       <div class="admin-version">v${esc(release.version)} ${badges(release)}</div>
-      <span class="tag">${esc(release.tag)}</span>
+      <a class="tag" href="${esc(release.downloadUrl)}" target="_blank" rel="noreferrer">下载链接</a>
     </div>
     <div class="meta-row">
       <span>${formatDate(release.publishedAt)}</span>
-      <span>${release.assets.length} 个文件 · ${formatBytes(release.size)}</span>
-      <a href="${esc(release.pageUrl)}" target="_blank" rel="noreferrer">GitHub 页面</a>
+      <span>${release.asset ? formatBytes(release.asset.size) : '无安装包'}</span>
     </div>
     <div class="asset-list">${assetRows(release)}</div>
     ${release.notes ? `<pre class="notes">${esc(release.notes)}</pre>` : ''}
@@ -296,7 +291,7 @@ function renderReleases(): void {
 
 function openDialog(release: AdminRelease | null): void {
   editingId = release ? release.id : null;
-  el('release-dialog-title').textContent = release ? `编辑 ${release.tag}` : '新建版本';
+  el('release-dialog-title').textContent = release ? `编辑 ${release.platform} ${release.version}` : '新建版本';
   const platform = el<HTMLSelectElement>('f-platform');
   platform.value = release ? release.platform : 'windows';
   platform.disabled = Boolean(release);
@@ -309,8 +304,7 @@ function openDialog(release: AdminRelease | null): void {
   el<HTMLInputElement>('f-prerelease').checked = release ? release.prerelease : false;
   el<HTMLInputElement>('f-draft').checked = release ? release.draft : false;
   syncVersionCodeField();
-  const dialog = el<HTMLDialogElement>('release-dialog');
-  dialog.showModal();
+  el<HTMLDialogElement>('release-dialog').showModal();
 }
 
 function syncVersionCodeField(): void {
@@ -358,7 +352,7 @@ async function saveRelease(): Promise<void> {
   }
 }
 
-function patchRelease(id: number, patch: Record<string, unknown>, done: string): void {
+function patchRelease(id: string, patch: Record<string, unknown>, done: string): void {
   void (async () => {
     try {
       await request(`/api/v1/admin/releases/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
@@ -371,11 +365,11 @@ function patchRelease(id: number, patch: Record<string, unknown>, done: string):
 }
 
 function deleteRelease(release: AdminRelease): void {
-  if (!window.confirm(`删除版本 ${release.tag}？GitHub 上的 Release 与安装包都会被删除。`)) return;
+  if (!window.confirm(`删除 ${release.platform} ${release.version}？R2 中的安装包也会被删除。`)) return;
   void (async () => {
     try {
       await request(`/api/v1/admin/releases/${release.id}`, { method: 'DELETE' });
-      toast(`已删除 ${release.tag}`);
+      toast(`已删除 v${release.version}`);
       await refresh();
     } catch (error) {
       toast(error instanceof Error ? error.message : '删除失败', true);
@@ -383,11 +377,11 @@ function deleteRelease(release: AdminRelease): void {
   })();
 }
 
-function deleteAsset(assetId: number, name: string): void {
-  if (!window.confirm(`删除安装包 ${name}？`)) return;
+function deleteAsset(release: AdminRelease): void {
+  if (!window.confirm(`删除安装包 ${release.asset?.name || ''}？`)) return;
   void (async () => {
     try {
-      await request(`/api/v1/admin/assets/${assetId}`, { method: 'DELETE' });
+      await request(`/api/v1/admin/releases/${release.id}/asset`, { method: 'DELETE' });
       toast('已删除安装包');
       await refresh();
     } catch (error) {
@@ -396,60 +390,116 @@ function deleteAsset(assetId: number, name: string): void {
   })();
 }
 
-function pickFile(releaseId: number): void {
+function pickFile(releaseId: string): void {
+  if (uploading) {
+    toast('已有文件正在上传，请稍候', true);
+    return;
+  }
   uploadReleaseId = releaseId;
   el<HTMLInputElement>('file-input').click();
 }
 
-function uploadFile(releaseId: number, file: File): void {
-  if (!state) return;
-  const limit = state.maxUploadMB * 1024 * 1024;
-  if (file.size > limit) {
-    toast(
-      `文件 ${formatBytes(file.size)} 超过 ${state.maxUploadMB} MB 上传上限，请先在 GitHub 网页版上传`,
-      true,
-    );
-    return;
-  }
-  const card = document.querySelector<HTMLElement>(`.admin-release[data-id="${releaseId}"]`);
+function updateProgress(releaseId: string, percent: number, label: string): void {
+  const card = document.querySelector<HTMLElement>(`.admin-release[data-id="${CSS.escape(releaseId)}"]`);
   const progress = card?.querySelector<HTMLElement>('.upload-progress');
   const bar = progress?.querySelector<HTMLElement>('.upload-bar');
-  const label = progress?.querySelector<HTMLElement>('.upload-text');
+  const text = progress?.querySelector<HTMLElement>('.upload-text');
   if (progress) progress.hidden = false;
-  if (bar) bar.style.width = '0%';
-  if (label) label.textContent = `正在上传 ${file.name}…`;
+  if (bar) bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+  if (text) text.textContent = label;
+}
 
-  const xhr = new XMLHttpRequest();
-  xhr.open(
-    'POST',
-    `/api/v1/admin/releases/${releaseId}/assets?name=${encodeURIComponent(file.name)}&replace=1`,
-  );
-  xhr.setRequestHeader('authorization', `Bearer ${token}`);
-  xhr.upload.onprogress = (event) => {
-    if (!event.lengthComputable || !bar) return;
-    const percent = Math.round((event.loaded / event.total) * 100);
-    bar.style.width = `${percent}%`;
-    if (label) label.textContent = `正在上传 ${file.name}（${percent}%）`;
+function hideProgress(releaseId: string): void {
+  const card = document.querySelector<HTMLElement>(`.admin-release[data-id="${CSS.escape(releaseId)}"]`);
+  const progress = card?.querySelector<HTMLElement>('.upload-progress');
+  if (progress) progress.hidden = true;
+}
+
+function putPart(
+  releaseId: string,
+  session: UploadSession,
+  partNumber: number,
+  blob: Blob,
+  onProgress: (loaded: number) => void,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const query = `?name=${encodeURIComponent(session.name)}`;
+    xhr.open(
+      'PUT',
+      `/api/v1/admin/releases/${releaseId}/uploads/${encodeURIComponent(session.uploadId)}/parts/${partNumber}${query}`,
+    );
+    xhr.setRequestHeader('authorization', `Bearer ${token}`);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded);
+    };
+    xhr.onload = () => {
+      let data: Record<string, unknown> = {};
+      try {
+        data = JSON.parse(xhr.responseText || '{}') as Record<string, unknown>;
+      } catch (_) { /* ignore */ }
+      if (xhr.status >= 200 && xhr.status < 300 && typeof data.etag === 'string') {
+        resolve(data.etag);
+      } else {
+        reject(new Error(String(data.error || `分片上传失败（${xhr.status}）`)));
+      }
+    };
+    xhr.onerror = () => reject(new Error('分片上传失败，请检查网络'));
+    xhr.send(blob);
+  });
+}
+
+async function uploadFile(releaseId: string, file: File): Promise<void> {
+  uploading = true;
+  const totalParts = Math.max(1, Math.ceil(file.size / PART_SIZE));
+  const parts: Array<{ partNumber: number; etag: string }> = [];
+  let session: UploadSession | null = null;
+  const overall = (sent: number) => {
+    const percent = file.size ? ((sent / file.size) * 100) : 0;
+    updateProgress(releaseId, percent, `正在上传 ${file.name}（${percent.toFixed(0)}%）`);
   };
-  xhr.onload = () => {
-    let data: Record<string, unknown> = {};
-    try {
-      data = JSON.parse(xhr.responseText || '{}') as Record<string, unknown>;
-    } catch (_) { /* ignore */ }
-    if (xhr.status >= 200 && xhr.status < 300) {
-      toast(`安装包 ${file.name} 上传完成`);
-      void refresh();
-    } else {
-      if (xhr.status === 401) logout(true);
-      toast(String(data.error || `上传失败（${xhr.status}）`), true);
-      if (progress) progress.hidden = true;
+  updateProgress(releaseId, 0, `正在准备上传 ${file.name}…`);
+  try {
+    session = await request<UploadSession>(`/api/v1/admin/releases/${releaseId}/uploads`, {
+      method: 'POST',
+      body: JSON.stringify({ name: file.name, contentType: file.type }),
+    });
+    for (let part = 1; part <= totalParts; part++) {
+      const start = (part - 1) * PART_SIZE;
+      const end = Math.min(start + PART_SIZE, file.size);
+      const chunk = file.slice(start, end);
+      let etag = '';
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          etag = await putPart(releaseId, session, part, chunk, (loaded) => overall(start + loaded));
+          break;
+        } catch (error) {
+          if (attempt === 2) throw error;
+        }
+      }
+      parts.push({ partNumber: part, etag });
+      overall(end);
     }
-  };
-  xhr.onerror = () => {
-    toast('上传失败，请检查网络后重试', true);
-    if (progress) progress.hidden = true;
-  };
-  xhr.send(file);
+    updateProgress(releaseId, 100, '正在合并分片…');
+    await request(
+      `/api/v1/admin/releases/${releaseId}/uploads/${encodeURIComponent(session.uploadId)}/complete?name=${encodeURIComponent(session.name)}`,
+      { method: 'POST', body: JSON.stringify({ parts }) },
+    );
+    toast(`安装包 ${file.name} 上传完成`);
+    hideProgress(releaseId);
+    await refresh();
+  } catch (error) {
+    if (session) {
+      void fetch(
+        `/api/v1/admin/releases/${releaseId}/uploads/${encodeURIComponent(session.uploadId)}?name=${encodeURIComponent(session.name)}`,
+        { method: 'DELETE', headers: { authorization: `Bearer ${token}` } },
+      ).catch(() => null);
+    }
+    hideProgress(releaseId);
+    toast(error instanceof Error ? error.message : '上传失败', true);
+  } finally {
+    uploading = false;
+  }
 }
 
 document.addEventListener('click', (event) => {
@@ -467,20 +517,18 @@ document.addEventListener('click', (event) => {
   const actionButton = target.closest<HTMLButtonElement>('[data-action]');
   if (!actionButton || !state) return;
   const card = actionButton.closest<HTMLElement>('.admin-release');
-  const release = card ? state.releases.find((item) => item.id === Number(card.dataset.id)) : null;
-  const action = actionButton.dataset.action;
-
-  if (action === 'del-asset') {
-    deleteAsset(Number(actionButton.dataset.asset), actionButton.dataset.name || '');
-    return;
-  }
+  const release = card ? state.releases.find((item) => item.id === card.dataset.id) : null;
   if (!release) return;
-  switch (action) {
+
+  switch (actionButton.dataset.action) {
     case 'edit':
       openDialog(release);
       break;
     case 'upload':
       pickFile(release.id);
+      break;
+    case 'del-asset':
+      deleteAsset(release);
       break;
     case 'draft':
       patchRelease(release.id, { draft: actionButton.dataset.value === '1' }, actionButton.dataset.value === '1' ? '已转为草稿' : '已发布');
@@ -519,8 +567,9 @@ el('login-form').addEventListener('submit', (event) => {
 el('logout').addEventListener('click', () => logout(false));
 
 el('new-release').addEventListener('click', () => {
-  if (!state || !state.writeConfigured) {
-    toast('请先配置具备读写权限的 GITHUB_TOKEN', true);
+  if (!state) return;
+  if (!state.storageBound) {
+    toast('请先绑定 R2 存储桶并重新部署', true);
     return;
   }
   openDialog(null);
@@ -544,7 +593,7 @@ fileInput.hidden = true;
 document.body.appendChild(fileInput);
 fileInput.addEventListener('change', () => {
   const file = fileInput.files && fileInput.files[0];
-  if (file && uploadReleaseId) uploadFile(uploadReleaseId, file);
+  if (file && uploadReleaseId) void uploadFile(uploadReleaseId, file);
   fileInput.value = '';
 });
 

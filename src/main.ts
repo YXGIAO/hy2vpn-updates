@@ -8,7 +8,6 @@ interface ReleaseView {
   platform: 'android' | 'windows';
   version: string;
   versionCode: number | null;
-  tag: string;
   title: string;
   notes: string;
   force: boolean;
@@ -17,7 +16,6 @@ interface ReleaseView {
   size: number;
   assetName: string;
   downloadUrl: string;
-  pageUrl: string;
   assets: UpdateAsset[];
 }
 
@@ -29,7 +27,7 @@ interface PlatformInfo {
 
 interface InfoResponse {
   ok: boolean;
-  repo: string;
+  storage: string;
   totalReleases: number;
   platforms: Record<'android' | 'windows', PlatformInfo>;
   checkedAt: string;
@@ -43,8 +41,9 @@ interface ReleasesResponse {
 
 interface HealthResponse {
   ok: boolean;
-  repo: string;
-  tokenConfigured: boolean;
+  storage: string;
+  storageBound: boolean;
+  adminConfigured: boolean;
 }
 
 const el = <T extends HTMLElement>(id: string): T => {
@@ -147,7 +146,7 @@ function platformCard(platform: 'windows' | 'android', info: PlatformInfo | unde
   const featured = info?.latest ?? info?.beta;
   if (!featured) {
     return `<article class="card">${heading}
-      <div class="empty">还没有发布 ${name} 安装包。按下方「如何发布新版本」创建第一个 Release 后，这里会自动显示。</div>
+      <div class="empty">还没有发布 ${name} 安装包。按下方「如何发布新版本」创建第一个版本后，这里会自动显示。</div>
     </article>`;
   }
   const latest = featured;
@@ -171,7 +170,6 @@ function platformCard(platform: 'windows' | 'android', info: PlatformInfo | unde
     ${notesBlock(latest)}
     <div class="card-actions">
       <a class="btn primary" href="${esc(absolute(latest.downloadUrl))}">下载 v${esc(latest.version)}</a>
-      <a class="btn ghost" href="${esc(latest.pageUrl)}" target="_blank" rel="noreferrer">GitHub 页面</a>
       <button class="btn tonal" type="button" data-copy="${esc(absolute(latest.downloadUrl))}">复制直链</button>
     </div>
   </article>`;
@@ -179,14 +177,14 @@ function platformCard(platform: 'windows' | 'android', info: PlatformInfo | unde
 
 function releaseRow(release: ReleaseView): string {
   return `<div class="release-row">
-    <span class="tag">${esc(release.tag)}</span>
+    <span class="tag">${esc(release.platform)}</span>
     <span class="release-title"><strong>v${esc(release.version)}</strong>${badges(release)}</span>
     <span class="date">${formatDate(release.publishedAt)}</span>
     <span class="size">${formatBytes(release.size)}</span>
     <span class="dl">${
       release.assetName
         ? `<a class="btn tonal" href="${esc(absolute(release.downloadUrl))}">下载</a>`
-        : `<a class="btn ghost" href="${esc(release.pageUrl)}" target="_blank" rel="noreferrer">查看</a>`
+        : '<span class="size">无安装包</span>'
     }</span>
   </div>`;
 }
@@ -196,7 +194,7 @@ function renderReleases(releases: ReleaseView[], platform: 'all' | 'windows' | '
   const filtered = platform === 'all' ? releases : releases.filter((item) => item.platform === platform);
   if (!filtered.length) {
     list.innerHTML = `<div class="empty">${
-      releases.length ? '该平台还没有版本记录。' : '还没有任何 Release。发布第一个版本后会自动出现在这里。'
+      releases.length ? '该平台还没有版本记录。' : '还没有任何版本。在管理后台创建第一个版本后会自动出现在这里。'
     }</div>`;
     return;
   }
@@ -240,17 +238,17 @@ async function load(): Promise<void> {
       ? ((await healthResponse.json()) as HealthResponse)
       : null;
 
-    el('repo-chip').textContent = payload.repo;
+    el('repo-chip').textContent = payload.storage || 'Cloudflare R2';
     el('repo-chip').className = 'chip ok';
     el('latest-cards').innerHTML = platformCard('windows', payload.platforms.windows) +
       platformCard('android', payload.platforms.android);
     el('release-list').innerHTML = '';
     renderReleases(allReleases, activePlatform);
-    el('fact-repo').textContent = payload.repo;
+    el('fact-storage').textContent = payload.storage || 'Cloudflare R2';
     el('fact-total').textContent = String(payload.totalReleases ?? allReleases.length);
     el('fact-time').textContent = formatDate(payload.checkedAt);
     el('fact-health').textContent = health
-      ? `正常${health.tokenConfigured ? ' · 已配置 Token' : ' · 未配置 Token'}`
+      ? `正常${health.storageBound ? ' · 存储已绑定' : ' · 存储未绑定'}${health.adminConfigured ? ' · 后台可用' : ' · 后台未配置'}`
       : '正常';
     const sample = el('api-sample');
     sample.textContent = `GET /api/v1/updates/latest?platform=android&channel=stable&current=1.8.0`;
@@ -258,7 +256,7 @@ async function load(): Promise<void> {
   } catch (error) {
     const message = error instanceof Error ? error.message : '更新服务暂时不可用';
     setBanner(
-      `${esc(message)}。若刚完成部署，请确认已在 Cloudflare Pages 绑定 <code>GITHUB_REPO</code>，且 GitHub 仓库 <code>YXGIAO/hy2vpn-updates</code> 已创建并发布过 Release。`,
+      `${esc(message)}。若刚完成部署，请确认 Pages 项目中已绑定 R2 存储桶（变量名 <code>RELEASES</code>）并配置 <code>ADMIN_TOKEN</code>。`,
       'warn',
     );
     el('repo-chip').textContent = '连接失败';
@@ -266,7 +264,7 @@ async function load(): Promise<void> {
     el('fact-health').textContent = '不可用';
     el('latest-cards').innerHTML =
       `<article class="card"><div class="empty">无法加载版本信息，请稍后点击右上角刷新。</div></article>` +
-      `<article class="card"><div class="empty">发布第一个 Release 后即可在线检查更新。</div></article>`;
+      `<article class="card"><div class="empty">创建第一个版本后即可在线检查更新。</div></article>`;
     el('release-list').innerHTML = '<div class="empty">暂无数据。</div>';
   } finally {
     refresh.classList.remove('loading');

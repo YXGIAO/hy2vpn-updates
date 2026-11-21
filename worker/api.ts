@@ -1,5 +1,12 @@
-import { compareVersions, listReleases, latestFor, repoName, UpstreamError } from './github';
 import { handleAdmin } from './admin';
+import {
+  bucket,
+  compareVersions,
+  findRelease,
+  latestFor,
+  readCatalog,
+  StorageError,
+} from './catalog';
 import type { Env, Platform } from './types';
 import { releaseView } from './view';
 
@@ -44,8 +51,8 @@ async function handleLatest(env: Env, url: URL): Promise<Response> {
   if (!platform) return fail(400, 'platform 仅支持 android 或 windows');
   const channel = normalizeChannel(url.searchParams.get('channel'));
   const current = String(url.searchParams.get('current') || '').trim().slice(0, 32);
-  const releases = await listReleases(env);
-  const release = latestFor(releases, platform, channel);
+  const catalog = await readCatalog(env);
+  const release = latestFor(catalog.releases, platform, channel);
   if (!release) {
     return json({
       ok: true,
@@ -59,14 +66,13 @@ async function handleLatest(env: Env, url: URL): Promise<Response> {
     });
   }
   const updateAvailable = current ? compareVersions(release.version, current) > 0 : true;
-  const origin = url.origin;
   return json({
     ok: true,
     platform,
     channel,
     current: current || null,
     updateAvailable,
-    release: releaseView(release, origin),
+    release: releaseView(release, url.origin),
     checkedAt: new Date().toISOString(),
   });
 }
@@ -80,8 +86,9 @@ async function handleReleases(env: Env, url: URL): Promise<Response> {
   if (channelValue !== 'all' && channelValue !== 'stable' && channelValue !== 'beta') {
     return fail(400, 'channel 仅支持 all、stable 或 beta');
   }
-  const releases = await listReleases(env);
-  const filtered = releases.filter((release) => {
+  const catalog = await readCatalog(env);
+  const filtered = catalog.releases.filter((release) => {
+    if (release.draft) return false;
     if (platformValue !== 'all' && release.platform !== platformValue) return false;
     if (channelValue === 'stable' && release.prerelease) return false;
     if (channelValue === 'beta' && !release.prerelease) return false;
@@ -97,34 +104,37 @@ async function handleReleases(env: Env, url: URL): Promise<Response> {
 }
 
 async function handleInfo(env: Env, url: URL): Promise<Response> {
-  const releases = await listReleases(env);
-  const origin = url.origin;
+  const catalog = await readCatalog(env);
   const platforms: Record<string, unknown> = {};
   for (const platform of PLATFORMS) {
-    const stable = latestFor(releases, platform, 'stable');
-    const beta = latestFor(releases, platform, 'beta');
+    const stable = latestFor(catalog.releases, platform, 'stable');
+    const beta = latestFor(catalog.releases, platform, 'beta');
     platforms[platform] = {
-      latest: stable ? releaseView(stable, origin) : null,
-      beta: beta ? releaseView(beta, origin) : null,
-      checkUrl: `${origin}/api/v1/updates/latest?platform=${platform}&channel=stable&current=<当前版本>`,
+      latest: stable ? releaseView(stable, url.origin) : null,
+      beta: beta ? releaseView(beta, url.origin) : null,
+      checkUrl: `${url.origin}/api/v1/updates/latest?platform=${platform}&channel=stable&current=<当前版本>`,
     };
   }
   return json({
     ok: true,
     service: 'hy2vpn-updates',
-    repo: repoName(env),
-    totalReleases: releases.length,
+    storage: 'Cloudflare R2',
+    totalReleases: catalog.releases.filter((release) => !release.draft).length,
     platforms,
     conventions: {
-      androidTag: 'android-v1.9.0',
-      windowsTag: 'windows-v1.4.0',
-      stable: '普通 Release',
-      beta: '勾选 Pre-release',
-      force: '在 Release 说明中单独一行写 force=true',
-      versionCode: '在 Release 说明中单独一行写 versionCode=13（Android）',
+      stable: '普通版本',
+      beta: '预发布（Beta）',
+      draft: '草稿，不对外可见',
+      force: '在管理后台中开启「强制更新」',
+      versionCode: 'Android 版本的 versionCode',
     },
     checkedAt: new Date().toISOString(),
   });
+}
+
+function contentDisposition(name: string): string {
+  const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }
 
 async function handleDownload(env: Env, url: URL): Promise<Response> {
@@ -132,20 +142,25 @@ async function handleDownload(env: Env, url: URL): Promise<Response> {
   if (!match) return fail(404, '下载地址不存在');
   const platform = match[1].toLowerCase() as Platform;
   const version = decodeURIComponent(match[2]);
-  const releases = await listReleases(env);
+  const catalog = await readCatalog(env);
   const release = version.toLowerCase() === 'latest'
-    ? latestFor(releases, platform, 'stable')
-    : releases.find((item) => item.platform === platform && item.version === version) || null;
-  if (!release) return fail(404, '没有找到对应版本');
-  if (!release.primary) return fail(404, '该版本没有可下载的安装包');
-  return new Response(null, {
-    status: 302,
-    headers: {
-      ...CORS,
-      location: release.primary.url,
-      'cache-control': 'no-store',
-    },
-  });
+    ? latestFor(catalog.releases, platform, 'stable')
+    : findRelease(catalog.releases, platform, version);
+  if (!release || release.draft) return fail(404, '没有找到对应版本');
+  if (!release.asset) return fail(404, '该版本没有可下载的安装包');
+
+  const object = await bucket(env).get(release.asset.key);
+  if (!object) return fail(404, '安装包文件不存在，请重新上传');
+  const headers: Record<string, string> = {
+    ...CORS,
+    'content-type': release.asset.contentType || 'application/octet-stream',
+    'content-length': String(object.size),
+    'content-disposition': contentDisposition(release.asset.name),
+    'cache-control': 'public, max-age=3600',
+    etag: object.httpEtag,
+    'accept-ranges': 'none',
+  };
+  return new Response(object.body, { status: 200, headers });
 }
 
 export async function handleApi(request: Request, env: Env): Promise<Response> {
@@ -163,8 +178,8 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
       return json({
         ok: true,
         service: 'hy2vpn-updates',
-        repo: repoName(env),
-        tokenConfigured: Boolean(env.GITHUB_TOKEN),
+        storage: env.RELEASES ? 'Cloudflare R2' : 'unbound',
+        storageBound: Boolean(env.RELEASES),
         adminConfigured: Boolean(env.ADMIN_TOKEN),
         serverTime: new Date().toISOString(),
       });
@@ -175,7 +190,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     if (url.pathname.startsWith('/api/v1/updates/download/')) return await handleDownload(env, url);
     return fail(404, '接口不存在');
   } catch (error) {
-    if (error instanceof UpstreamError) return fail(error.status, error.message);
+    if (error instanceof StorageError) return fail(error.status, error.message);
     return fail(500, error instanceof Error ? error.message : '更新服务异常');
   }
 }
