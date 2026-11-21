@@ -293,3 +293,5 @@ el('refresh').addEventListener('click', () => {
 });
 
 void load();
+
+export {};

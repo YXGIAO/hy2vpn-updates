@@ -19,6 +19,7 @@
         </div>
         <div class="topbar-actions">
           <span id="repo-chip" class="chip">加载中…</span>
+          <a class="btn ghost" href="./admin.html">管理后台</a>
           <button id="refresh" class="icon-btn" type="button" title="刷新">
             <span class="refresh-glyph">↻</span>
           </button>
@@ -84,33 +85,25 @@
         <div class="section-head">
           <div>
             <h2>如何发布新版本</h2>
-            <p class="section-sub">在 GitHub 新建 Release 即可，无需改动本服务</p>
+            <p class="section-sub">推荐使用「管理后台」，也可直接在 GitHub 新建 Release</p>
           </div>
         </div>
         <ol class="steps">
           <li>
-            <strong>构建安装包</strong>
-            <p>Windows 生成 <code>HY2VPN-Desktop-Setup-x.y.z.exe</code>；Android 生成 <code>HY2VPN-x.y.z.apk</code>（签名版）。</p>
+            <strong>打开管理后台</strong>
+            <p>点击右上角「管理后台」，输入 Pages 中配置的 <code>ADMIN_TOKEN</code>，即可新建版本、上传安装包、维护更新说明与强制更新标记。</p>
           </li>
           <li>
-            <strong>创建 Release</strong>
-            <p>标签必须以平台开头：<code>windows-v1.4.0</code> 或 <code>android-v1.9.0</code>。Beta 版本勾选 <em>Set as a pre-release</em>。</p>
-            <pre class="code"><code>gh release create windows-v1.4.0 ./HY2VPN-Desktop-Setup-1.4.0.exe \
-  --title "Windows 1.4.0" \
-  --notes "新增：客户端更新检查"
-
-gh release create android-v1.9.0 ./HY2VPN-1.9.0.apk \
-  --title "Android 1.9.0" \
-  --notes "versionCode: 13
-新增：客户端更新检查"</code></pre>
+            <strong>构建并上传安装包</strong>
+            <p>Windows 生成 <code>HY2VPN-Desktop-Setup-x.y.z.exe</code>；Android 生成 <code>HY2VPN-x.y.z.apk</code>（签名版）。超过上传上限的大文件可在 GitHub 网页版上传后再回后台调整状态。</p>
           </li>
           <li>
-            <strong>可选标记</strong>
-            <p>说明里单独一行写 <code>versionCode=13</code> 供 Android 使用；写 <code>force=true</code> 表示强制更新。客户端会先比较版本号，满足条件才提示。</p>
+            <strong>检查与发布</strong>
+            <p>后台创建版本时可选「草稿」「预发布」；确认无误后点击「发布」或「设为稳定」，客户端两分钟内即可检测到新版本。</p>
           </li>
           <li>
             <strong>验证</strong>
-            <p>发布后刷新本页，或访问 <code>/api/v1/updates/latest?platform=windows&amp;current=0.0.0</code> 确认能看到新版本。</p>
+            <p>刷新本页，或访问 <code>/api/v1/updates/latest?platform=windows&amp;current=0.0.0</code> 确认能看到新版本。</p>
           </li>
         </ol>
         <p class="hint">发布顺序建议：先上传安装包并发布 Release，再推送带新版本号的客户端代码。</p>

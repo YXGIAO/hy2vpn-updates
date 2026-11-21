@@ -1,12 +1,14 @@
 export interface Env {
   GITHUB_REPO?: string;
   GITHUB_TOKEN?: string;
+  ADMIN_TOKEN?: string;
   ASSETS: Fetcher;
 }
 
 export type Platform = 'android' | 'windows';
 
 export interface UpdateAsset {
+  id: number;
   name: string;
   size: number;
   url: string;
@@ -21,6 +23,7 @@ export interface UpdateRelease {
   notes: string;
   publishedAt: string;
   prerelease: boolean;
+  draft: boolean;
   force: boolean;
   versionCode: number | null;
   pageUrl: string;

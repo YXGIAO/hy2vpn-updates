@@ -1,5 +1,7 @@
 import { compareVersions, listReleases, latestFor, repoName, UpstreamError } from './github';
-import type { Env, Platform, UpdateRelease } from './types';
+import { handleAdmin } from './admin';
+import type { Env, Platform } from './types';
+import { releaseView } from './view';
 
 const CORS: Record<string, string> = {
   'access-control-allow-origin': '*',
@@ -26,33 +28,6 @@ function fail(status: number, message: string): Response {
     status,
     headers: { ...CORS, 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
   });
-}
-
-function releaseView(release: UpdateRelease, origin: string): Record<string, unknown> {
-  const primary = release.primary;
-  const downloadUrl = primary
-    ? `${origin}/api/v1/updates/download/${release.platform}/${encodeURIComponent(release.version)}`
-    : release.pageUrl;
-  return {
-    platform: release.platform,
-    version: release.version,
-    versionCode: release.versionCode,
-    tag: release.tag,
-    title: release.title,
-    notes: release.notes,
-    force: release.force,
-    prerelease: release.prerelease,
-    publishedAt: release.publishedAt,
-    size: primary ? primary.size : 0,
-    assetName: primary ? primary.name : '',
-    downloadUrl,
-    pageUrl: release.pageUrl,
-    assets: release.assets.map((asset) => ({
-      name: asset.name,
-      size: asset.size,
-      url: asset.url,
-    })),
-  };
 }
 
 function normalizePlatform(value: string | null): Platform | null {
@@ -175,9 +150,14 @@ async function handleDownload(env: Env, url: URL): Promise<Response> {
 
 export async function handleApi(request: Request, env: Env): Promise<Response> {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
-  if (request.method !== 'GET' && request.method !== 'HEAD') return fail(405, '不支持的请求方法');
 
   const url = new URL(request.url);
+  if (url.pathname.startsWith('/api/v1/admin/')) {
+    return handleAdmin(request, env, url.origin);
+  }
+
+  if (request.method !== 'GET' && request.method !== 'HEAD') return fail(405, '不支持的请求方法');
+
   try {
     if (url.pathname === '/api/v1/updates/health') {
       return json({
@@ -185,6 +165,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
         service: 'hy2vpn-updates',
         repo: repoName(env),
         tokenConfigured: Boolean(env.GITHUB_TOKEN),
+        adminConfigured: Boolean(env.ADMIN_TOKEN),
         serverTime: new Date().toISOString(),
       });
     }

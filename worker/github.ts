@@ -61,7 +61,7 @@ export function compareVersions(a: string, b: string): number {
 function stripMetadata(body: string): string {
   return body
     .split(/\r?\n/)
-    .filter((line) => !/^\s*(force|versionCode)\s*[:=]/i.test(line) && !/^\s*\[force\]\s*$/i.test(line))
+    .filter((line) => !/^\s*(force|versionCode|latest|preview)\s*[:=]/i.test(line) && !/^\s*\[force\]\s*$/i.test(line))
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -70,6 +70,19 @@ function stripMetadata(body: string): string {
 function metadata(body: string, key: string): string {
   const match = body.match(new RegExp(`^\\s*${key}\\s*[:=]\\s*(.+)$`, 'im'));
   return match ? match[1].trim() : '';
+}
+
+export function readReleaseMetadata(body: string | null): { force: boolean; versionCode: number | null } {
+  const text = body || '';
+  const forceValue = metadata(text, 'force').toLowerCase();
+  return {
+    force: forceValue === 'true' || forceValue === '1' || forceValue === 'yes' || /\[force\]/i.test(text),
+    versionCode: Number(metadata(text, 'versionCode')) || null,
+  };
+}
+
+export function cleanReleaseNotes(body: string | null): string {
+  return stripMetadata(body || '');
 }
 
 function pickAsset(platform: Platform, assets: GhAsset[]): GhAsset | null {
@@ -84,8 +97,8 @@ function pickAsset(platform: Platform, assets: GhAsset[]): GhAsset | null {
   );
 }
 
-function toRelease(raw: GhRelease): UpdateRelease | null {
-  if (raw.draft) return null;
+function toRelease(raw: GhRelease, includeDrafts = false): UpdateRelease | null {
+  if (raw.draft && !includeDrafts) return null;
   const tag = String(raw.tag_name || '').trim();
   const match = tag.match(/^(android|windows)-(.+)$/i);
   if (!match) return null;
@@ -94,9 +107,9 @@ function toRelease(raw: GhRelease): UpdateRelease | null {
   if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) return null;
 
   const body = raw.body || '';
-  const forceValue = metadata(body, 'force').toLowerCase();
-  const versionCode = Number(metadata(body, 'versionCode')) || null;
+  const flags = readReleaseMetadata(body);
   const assets: UpdateAsset[] = raw.assets.map((asset) => ({
+    id: asset.id,
     name: asset.name,
     size: asset.size,
     url: asset.browser_download_url,
@@ -112,11 +125,19 @@ function toRelease(raw: GhRelease): UpdateRelease | null {
     notes: stripMetadata(body),
     publishedAt: raw.published_at || '',
     prerelease: raw.prerelease || version.includes('-'),
-    force: forceValue === 'true' || forceValue === '1' || forceValue === 'yes' || /\[force\]/i.test(body),
-    versionCode,
+    draft: Boolean(raw.draft),
+    force: flags.force,
+    versionCode: flags.versionCode,
     pageUrl: raw.html_url,
     assets,
-    primary: primary ? { name: primary.name, size: primary.size, url: primary.browser_download_url } : null,
+    primary: primary
+      ? {
+          id: primary.id,
+          name: primary.name,
+          size: primary.size,
+          url: primary.browser_download_url,
+        }
+      : null,
   };
 }
 
@@ -128,11 +149,20 @@ function sortReleases(list: UpdateRelease[]): UpdateRelease[] {
   });
 }
 
+function cacheKey(env: Env): Request {
+  return new Request(`https://hy2vpn-updates.internal/releases/${repoName(env)}`);
+}
+
+export async function clearReleasesCache(env: Env): Promise<void> {
+  if (typeof caches === 'undefined') return;
+  await caches.default.delete(cacheKey(env));
+}
+
 export async function listReleases(env: Env): Promise<UpdateRelease[]> {
   const repo = repoName(env);
   const cache = typeof caches !== 'undefined' ? caches.default : null;
-  const cacheKey = new Request(`https://hy2vpn-updates.internal/releases/${repo}`);
-  const cached = cache ? await cache.match(cacheKey) : null;
+  const key = cacheKey(env);
+  const cached = cache ? await cache.match(key) : null;
   if (cached) {
     const payload = (await cached.json()) as { at: number; list: UpdateRelease[] };
     if (Date.now() - payload.at < 120_000) return payload.list;
@@ -157,10 +187,10 @@ export async function listReleases(env: Env): Promise<UpdateRelease[]> {
       throw new UpstreamError(`GitHub API 返回 ${response.status}`, 502);
     }
     const raw = (await response.json()) as GhRelease[];
-    const list = sortReleases(raw.map(toRelease).filter((item): item is UpdateRelease => item !== null));
+    const list = sortReleases(raw.map((item) => toRelease(item)).filter((item): item is UpdateRelease => item !== null));
     if (cache) {
       await cache.put(
-        cacheKey,
+        key,
         new Response(JSON.stringify({ at: Date.now(), list }), {
           headers: { 'content-type': 'application/json', 'cache-control': 'max-age=600' },
         }),
@@ -177,6 +207,32 @@ export async function listReleases(env: Env): Promise<UpdateRelease[]> {
   }
 }
 
+export interface RawGithubRelease {
+  id: number;
+  tag_name: string;
+  name: string | null;
+  body: string | null;
+  draft: boolean;
+  prerelease: boolean;
+  published_at: string | null;
+  html_url: string;
+  assets: GhAsset[];
+}
+
+export async function listAdminReleases(env: Env): Promise<UpdateRelease[]> {
+  if (!env.GITHUB_TOKEN) {
+    throw new UpstreamError('未配置 GITHUB_TOKEN，管理页面无法读写版本', 503);
+  }
+  const raw = await githubJson<RawGithubRelease[]>(env, `/repos/${repoName(env)}/releases?per_page=100`);
+  return sortReleases(
+    raw.map((item) => toRelease(item, true)).filter((item): item is UpdateRelease => item !== null),
+  );
+}
+
+export async function fetchGithubRelease(env: Env, id: number): Promise<RawGithubRelease> {
+  return githubJson<RawGithubRelease>(env, `/repos/${repoName(env)}/releases/${id}`);
+}
+
 export function latestFor(
   releases: UpdateRelease[],
   platform: Platform,
@@ -188,4 +244,147 @@ export function latestFor(
     return release;
   }
   return null;
+}
+
+export async function githubJson<T>(env: Env, path: string, init: RequestInit = {}): Promise<T> {
+  if (!env.GITHUB_TOKEN) {
+    throw new UpstreamError('未配置 GITHUB_TOKEN，无法执行管理操作', 503);
+  }
+  const token = env.GITHUB_TOKEN;
+  const response = await fetch(`https://api.github.com${path}`, {
+    ...init,
+    headers: {
+      accept: 'application/vnd.github+json',
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+      'user-agent': 'HY2VPN-Updates/1.0',
+      'x-github-api-version': '2022-11-28',
+      ...(init.headers || {}),
+    },
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    let message = `GitHub API 返回 ${response.status}`;
+    try {
+      const parsed = JSON.parse(text) as { message?: string };
+      if (parsed.message) message = parsed.message;
+    } catch (_) { /* ignore */ }
+    if (response.status === 401) message = 'GITHUB_TOKEN 无效或权限不足';
+    if (response.status === 404) message = '仓库或版本不存在';
+    throw new UpstreamError(message, response.status === 422 ? 400 : 502);
+  }
+  return (text ? JSON.parse(text) : null) as T;
+}
+
+export function composeReleaseBody(notes: string, force: boolean, versionCode: number | null): string {
+  const parts = [String(notes || '').trim()];
+  if (force) parts.push('force=true');
+  if (versionCode && versionCode > 0) parts.push(`versionCode=${versionCode}`);
+  return parts.filter(Boolean).join('\n\n');
+}
+
+interface ReleaseWriteInput {
+  notes: string;
+  force: boolean;
+  prerelease: boolean;
+  versionCode: number | null;
+  name: string;
+  draft?: boolean;
+}
+
+export async function createGithubRelease(
+  env: Env,
+  input: ReleaseWriteInput & { tag: string },
+): Promise<{ id: number; html_url: string; tag_name: string }> {
+  const release = await githubJson<{ id: number; html_url: string; tag_name: string }>(
+    env,
+    `/repos/${repoName(env)}/releases`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        tag_name: input.tag,
+        target_commitish: 'main',
+        name: input.name,
+        body: composeReleaseBody(input.notes, input.force, input.versionCode),
+        draft: input.draft === true,
+        prerelease: input.prerelease,
+      }),
+    },
+  );
+  await clearReleasesCache(env);
+  return release;
+}
+
+export async function updateGithubRelease(
+  env: Env,
+  id: number,
+  input: ReleaseWriteInput,
+): Promise<void> {
+  await githubJson(env, `/repos/${repoName(env)}/releases/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      name: input.name,
+      body: composeReleaseBody(input.notes, input.force, input.versionCode),
+      prerelease: input.prerelease,
+      ...(input.draft === undefined ? {} : { draft: input.draft }),
+    }),
+  });
+  await clearReleasesCache(env);
+}
+
+export async function deleteGithubRelease(env: Env, id: number): Promise<void> {
+  const repo = repoName(env);
+  const release = await githubJson<{ tag_name: string }>(env, `/repos/${repo}/releases/${id}`);
+  await githubJson(env, `/repos/${repo}/releases/${id}`, { method: 'DELETE' });
+  if (release && release.tag_name) {
+    await fetch(`https://api.github.com/repos/${repo}/git/refs/tags/${encodeURIComponent(release.tag_name)}`, {
+      method: 'DELETE',
+      headers: {
+        authorization: `Bearer ${env.GITHUB_TOKEN}`,
+        accept: 'application/vnd.github+json',
+        'user-agent': 'HY2VPN-Updates/1.0',
+        'x-github-api-version': '2022-11-28',
+      },
+    }).catch(() => null);
+  }
+  await clearReleasesCache(env);
+}
+
+export async function deleteGithubAsset(env: Env, assetId: number): Promise<void> {
+  await githubJson(env, `/repos/${repoName(env)}/releases/assets/${assetId}`, { method: 'DELETE' });
+  await clearReleasesCache(env);
+}
+
+export async function uploadGithubAsset(
+  env: Env,
+  releaseId: number,
+  name: string,
+  body: ReadableStream | null,
+  contentType: string,
+  contentLength: string,
+): Promise<{ id: number; name: string; size: number }> {
+  if (!env.GITHUB_TOKEN) {
+    throw new UpstreamError('未配置 GITHUB_TOKEN，无法上传安装包', 503);
+  }
+  const url = `https://uploads.github.com/repos/${repoName(env)}/releases/${releaseId}/assets?name=${encodeURIComponent(name)}`;
+  const headers: Record<string, string> = {
+    authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    accept: 'application/vnd.github+json',
+    'content-type': contentType || 'application/octet-stream',
+    'user-agent': 'HY2VPN-Updates/1.0',
+  };
+  if (contentLength) headers['content-length'] = contentLength;
+  const response = await fetch(url, { method: 'POST', headers, body });
+  const text = await response.text();
+  if (!response.ok) {
+    let message = `上传失败（${response.status}）`;
+    try {
+      const parsed = JSON.parse(text) as { message?: string };
+      if (parsed.message) message = parsed.message;
+    } catch (_) { /* ignore */ }
+    if (response.status === 422) message = '该版本已存在同名安装包，请先删除旧文件';
+    throw new UpstreamError(message, 502);
+  }
+  await clearReleasesCache(env);
+  return JSON.parse(text) as { id: number; name: string; size: number };
 }

@@ -6,5 +6,11 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     target: 'es2022',
+    rollupOptions: {
+      input: {
+        main: 'index.html',
+        admin: 'admin.html',
+      },
+    },
   },
 });

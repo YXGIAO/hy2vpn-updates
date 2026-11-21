@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f7f9fc" />
+    <meta name="robots" content="noindex" />
+    <title>HY2 VPN · 更新管理后台</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">H2</div>
+          <div>
+            <h1>更新管理后台</h1>
+            <p class="brand-sub">发布版本 · 上传安装包 · 维护更新说明</p>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <a class="btn ghost" href="./index.html">返回首页</a>
+          <span id="repo-chip" class="chip">未登录</span>
+          <button id="logout" class="icon-btn" type="button" title="退出登录" hidden>⎋</button>
+        </div>
+      </header>
+
+      <div id="banner" class="banner" hidden></div>
+
+      <section id="login-view" class="card login-card">
+        <h2>管理员登录</h2>
+        <p class="section-sub">输入在 Cloudflare Pages 中配置的 <code>ADMIN_TOKEN</code> 管理口令</p>
+        <form id="login-form" class="login-form" autocomplete="off">
+          <input
+            id="token-input"
+            class="input"
+            type="password"
+            placeholder="管理口令"
+            autocomplete="current-password"
+            required
+          />
+          <button class="btn primary" type="submit" id="login-btn">登录</button>
+        </form>
+        <p class="login-hint">
+          尚未配置口令？在 Pages 项目 → Settings → Variables and Secrets 中添加 Secret
+          <code>ADMIN_TOKEN</code>，再 Retry deployment 即可。
+        </p>
+      </section>
+
+      <div id="dashboard" hidden>
+        <section class="hero-grid" id="platform-cards"></section>
+
+        <section class="card">
+          <div class="section-head">
+            <div>
+              <h2>版本管理</h2>
+              <p class="section-sub">草稿与预发布版本不会推送给稳定版客户端</p>
+            </div>
+            <div class="head-actions">
+              <div class="filters" id="platform-filter">
+                <button class="filter active" data-platform="all" type="button">全部</button>
+                <button class="filter" data-platform="windows" type="button">Windows</button>
+                <button class="filter" data-platform="android" type="button">Android</button>
+              </div>
+              <button id="new-release" class="btn primary" type="button">＋ 新建版本</button>
+            </div>
+          </div>
+          <div id="admin-release-list" class="admin-release-list"></div>
+        </section>
+
+        <section class="split">
+          <article class="card">
+            <div class="section-head">
+              <div>
+                <h2>发布流程</h2>
+                <p class="section-sub">三步完成一次发版</p>
+              </div>
+            </div>
+            <ol class="steps">
+              <li>
+                <strong>新建版本</strong>
+                <p>标签自动生成 <code>windows-v1.4.1</code> / <code>android-v1.10.0</code>；Beta 勾选「预发布」，还没准备好就勾选「草稿」。</p>
+              </li>
+              <li>
+                <strong>上传安装包</strong>
+                <p>点击版本卡片上的「上传安装包」。同名文件会被替换。草稿版本同样可以上传。</p>
+              </li>
+              <li>
+                <strong>发布给用户</strong>
+                <p>草稿 → 点击「发布」；预发布版本 → 点击「设为稳定」；需要强制升级时在「编辑说明」里勾选强制更新。</p>
+              </li>
+            </ol>
+            <p class="hint" id="size-hint"></p>
+          </article>
+
+          <article class="card">
+            <div class="section-head">
+              <div>
+                <h2>服务状态</h2>
+                <p class="section-sub">写入操作需要 GITHUB_TOKEN</p>
+              </div>
+            </div>
+            <dl class="facts">
+              <div><dt>GitHub 仓库</dt><dd id="fact-repo">—</dd></div>
+              <div><dt>写入 Token</dt><dd id="fact-write">—</dd></div>
+              <div><dt>版本总数</dt><dd id="fact-count">—</dd></div>
+              <div><dt>刷新时间</dt><dd id="fact-time">—</dd></div>
+            </dl>
+          </article>
+        </section>
+      </div>
+
+      <footer class="footer">
+        <span>HY2 VPN · 更新管理后台</span>
+        <span id="origin-label">Cloudflare Pages + GitHub Releases</span>
+      </footer>
+    </div>
+
+    <dialog id="release-dialog" class="dialog">
+      <form id="release-form" method="dialog">
+        <h2 id="release-dialog-title">新建版本</h2>
+        <div class="dialog-grid">
+          <label class="field" id="platform-field">
+            <span>平台</span>
+            <select id="f-platform" class="input">
+              <option value="windows">Windows</option>
+              <option value="android">Android</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>版本号</span>
+            <input id="f-version" class="input" placeholder="1.4.1 或 1.10.0-beta.1" required />
+          </label>
+          <label class="field" id="versioncode-field">
+            <span>versionCode（Android）</span>
+            <input id="f-versioncode" class="input" type="number" min="1" step="1" placeholder="14" />
+          </label>
+          <label class="field">
+            <span>标题（可选）</span>
+            <input id="f-title" class="input" placeholder="Windows 1.4.1" />
+          </label>
+          <label class="field field-wide">
+            <span>更新说明</span>
+            <textarea id="f-notes" class="input" rows="6" placeholder="修复：…&#10;新增：…"></textarea>
+          </label>
+        </div>
+        <div class="check-row">
+          <label class="check"><input id="f-force" type="checkbox" /> 强制更新</label>
+          <label class="check"><input id="f-prerelease" type="checkbox" /> 预发布（Beta）</label>
+          <label class="check"><input id="f-draft" type="checkbox" /> 草稿（不对外）</label>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn ghost" type="button" data-close>取消</button>
+          <button class="btn primary" type="submit" id="release-submit">保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" hidden></div>
+    <script type="module" src="/src/admin.ts"></script>
+  </body>
+</html>
