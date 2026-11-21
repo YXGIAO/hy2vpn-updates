@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f7f9fc" />
+    <title>HY2 VPN · 更新推送服务</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">H2</div>
+          <div>
+            <h1>HY2 VPN 更新服务</h1>
+            <p class="brand-sub">客户端更新检查 · 安装包分发 · GitHub Releases 托管</p>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <span id="repo-chip" class="chip">加载中…</span>
+          <button id="refresh" class="icon-btn" type="button" title="刷新">
+            <span class="refresh-glyph">↻</span>
+          </button>
+        </div>
+      </header>
+
+      <div id="banner" class="banner" hidden></div>
+
+      <section class="hero-grid" id="latest-cards">
+        <article class="card skeleton"></article>
+        <article class="card skeleton"></article>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h2>版本记录</h2>
+            <p class="section-sub">按版本号从新到旧排列，Beta 为预发布版本</p>
+          </div>
+          <div class="filters">
+            <button class="filter active" data-platform="all" type="button">全部</button>
+            <button class="filter" data-platform="windows" type="button">Windows</button>
+            <button class="filter" data-platform="android" type="button">Android</button>
+          </div>
+        </div>
+        <div id="release-list" class="release-list"></div>
+      </section>
+
+      <section class="split">
+        <article class="card">
+          <div class="section-head">
+            <div>
+              <h2>客户端检查接口</h2>
+              <p class="section-sub">客户端启动时调用，自动判断是否需要更新</p>
+            </div>
+          </div>
+          <pre class="code"><code id="api-sample">GET /api/v1/updates/latest?platform=android&amp;channel=stable&amp;current=1.8.0</code></pre>
+          <ul class="plain-list">
+            <li><code>platform</code>：<code>android</code> 或 <code>windows</code></li>
+            <li><code>channel</code>：<code>stable</code>（默认）或 <code>beta</code></li>
+            <li><code>current</code>：当前已安装版本号，如 <code>1.8.0</code></li>
+            <li>返回 <code>updateAvailable</code>、<code>release.version</code>、<code>release.force</code>、<code>release.downloadUrl</code></li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <div class="section-head">
+            <div>
+              <h2>状态</h2>
+              <p class="section-sub">GitHub API 结果缓存 120 秒</p>
+            </div>
+          </div>
+          <dl class="facts">
+            <div><dt>GitHub 仓库</dt><dd id="fact-repo">—</dd></div>
+            <div><dt>安装包总数</dt><dd id="fact-total">—</dd></div>
+            <div><dt>服务时间</dt><dd id="fact-time">—</dd></div>
+            <div><dt>健康检查</dt><dd id="fact-health">—</dd></div>
+          </dl>
+        </article>
+      </section>
+
+      <section class="card" id="publish">
+        <div class="section-head">
+          <div>
+            <h2>如何发布新版本</h2>
+            <p class="section-sub">在 GitHub 新建 Release 即可，无需改动本服务</p>
+          </div>
+        </div>
+        <ol class="steps">
+          <li>
+            <strong>构建安装包</strong>
+            <p>Windows 生成 <code>HY2VPN-Desktop-Setup-x.y.z.exe</code>；Android 生成 <code>HY2VPN-x.y.z.apk</code>（签名版）。</p>
+          </li>
+          <li>
+            <strong>创建 Release</strong>
+            <p>标签必须以平台开头：<code>windows-v1.4.0</code> 或 <code>android-v1.9.0</code>。Beta 版本勾选 <em>Set as a pre-release</em>。</p>
+            <pre class="code"><code>gh release create windows-v1.4.0 ./HY2VPN-Desktop-Setup-1.4.0.exe \
+  --title "Windows 1.4.0" \
+  --notes "新增：客户端更新检查"
+
+gh release create android-v1.9.0 ./HY2VPN-1.9.0.apk \
+  --title "Android 1.9.0" \
+  --notes "versionCode: 13
+新增：客户端更新检查"</code></pre>
+          </li>
+          <li>
+            <strong>可选标记</strong>
+            <p>说明里单独一行写 <code>versionCode=13</code> 供 Android 使用；写 <code>force=true</code> 表示强制更新。客户端会先比较版本号，满足条件才提示。</p>
+          </li>
+          <li>
+            <strong>验证</strong>
+            <p>发布后刷新本页，或访问 <code>/api/v1/updates/latest?platform=windows&amp;current=0.0.0</code> 确认能看到新版本。</p>
+          </li>
+        </ol>
+        <p class="hint">发布顺序建议：先上传安装包并发布 Release，再推送带新版本号的客户端代码。</p>
+      </section>
+
+      <footer class="footer">
+        <span>HY2 VPN · hy2vpn-updates</span>
+        <span>Cloudflare Pages + GitHub Releases</span>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

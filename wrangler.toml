@@ -1,0 +1,6 @@
+name = "hy2vpn-updates"
+compatibility_date = "2026-11-01"
+pages_build_output_dir = "./dist"
+
+[vars]
+GITHUB_REPO = "YXGIAO/hy2vpn-updates"
