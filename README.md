@@ -62,37 +62,43 @@ git push -u origin main
 
 ### 3. 创建 Pages 项目
 
+> 项目名必须填 `hy2vpn-updates`，客户端内置的更新地址是 `https://hy2vpn-updates.pages.dev`。
+
 1. 打开 <https://dash.cloudflare.com/>，进入 **Workers & Pages**。
 2. 点击 **Create** → **Pages** → **Connect to Git**。
 3. 授权 GitHub，选择 `YXGIAO/hy2vpn-updates`，点击 **Begin setup**。
-4. 构建设置：
+4. 项目名称填 `hy2vpn-updates`，构建设置：
    - Framework preset：**None**
    - Build command：`npm run build`
    - Build output directory：`dist`
    - Root directory：留空
    - Environment variables：`NODE_VERSION` = `22`（可选，默认已是 22）
 5. 点击 **Save and Deploy**，等待第一次构建完成。
-6. 记下分配的域名，例如 `https://hy2vpn-updates.pages.dev`。之后每次 `git push` 到 `main` 都会自动重新部署。
+6. 打开 `https://hy2vpn-updates.pages.dev/api/v1/updates/health`，返回 `"ok": true` 即部署成功。之后每次推送到 `main` 都会自动重新部署。
 
-### 4. 配置变量（可选但建议）
+### 4. 配置变量
 
-在 Pages 项目 → **Settings** → **Variables and Secrets**：
+在 Pages 项目 → **Settings** → **Variables and Secrets** 添加：
 
 | 名称 | 类型 | 值 | 作用 |
 | --- | --- | --- | --- |
 | `GITHUB_REPO` | 变量 | `YXGIAO/hy2vpn-updates` | 已写在 `wrangler.toml`，此处可覆盖 |
-| `GITHUB_TOKEN` | Secret | GitHub PAT（仅 `public_repo` 只读权限） | 把限流从 60 次/小时提升到 5000 次/小时 |
+| `GITHUB_TOKEN` | Secret | GitHub PAT（只读仓库 Contents） | **强烈建议**：未登录的 GitHub API 只有 60 次/小时，且 Cloudflare 出口 IP 共享，很容易被限流 |
+
+创建 Token 的步骤：GitHub → **Settings** → **Developer settings** → **Personal access tokens** → **Fine-grained tokens** → **Generate new token**，Repository access 选 `hy2vpn-updates`，Permissions → Repository permissions → **Contents: Read-only**，生成后复制到 Cloudflare 的 `GITHUB_TOKEN` Secret。
 
 修改变量后需要在 **Deployments** 里 **Retry deployment** 才会生效。
 
-### 5. 发布第一个安装包
+### 5. 发布新版本
+
+> 仓库里已经发布了 `windows-v1.4.0` 与 `android-v1.9.0`，可直接验证。以下流程用于以后每次发版。
 
 方式一：网页操作
 
 1. 打开仓库 → **Releases** → **Draft a new release**。
-2. Tag 填 `windows-v1.4.0`（必须 `windows-` 或 `android-` 开头）。
-3. 标题随意，说明里写更新内容；Android 额外写一行 `versionCode=13`。
-4. 上传 `HY2VPN-Desktop-Setup-1.4.0.exe` 或 `HY2VPN-1.9.0.apk`。
+2. Tag 填 `windows-v1.4.1`（必须 `windows-` 或 `android-` 开头）。
+3. 标题随意，说明里写更新内容；Android 额外写一行 `versionCode=14`。
+4. 上传 `HY2VPN-Desktop-Setup-1.4.1.exe` 或 `HY2VPN-1.9.1.apk`。
 5. 点击 **Publish release**。
 
 方式二：命令行（推荐）
@@ -168,6 +174,12 @@ GET /api/v1/updates/latest?platform=android&channel=stable&current=1.8.0
   - `versionCode=13`：Android 的 versionCode；
   - `force=true`：强制更新。
 - 说明中的这两行会从展示给用户的更新日志中自动剔除。
+
+## 客户端接入
+
+- Windows 1.4.0：`electron/updates.cjs` 默认请求 `https://hy2vpn-updates.pages.dev`，可用环境变量 `HY2VPN_UPDATES_URL` 覆盖。
+- Android 1.9.0：`UPDATE_BASE_URL`（`app/build.gradle.kts`）指向同一地址。
+- 检查时机：启动时自动检查一次；「我 → 关于 → 检查更新」可手动检查；发现新版本后弹窗展示更新说明并打开下载页。
 
 ## 常见问题
 
